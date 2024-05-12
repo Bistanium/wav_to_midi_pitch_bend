@@ -13,16 +13,16 @@ def data2midi(F, fs, N):
     beforenote, maxvolume = 0, 0
     count0, count1, count2, count3, count4, count5, count6, count7, count8, count10, count11 = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     otolist0, otolist1, otolist2, otolist3, otolist4, otolist5, otolist6, otolist7, otolist8, otolist10, otolist11 = [35], [35], [35], [35], [35], [35], [35], [35], [35], [35], [35]
-    track0.append(Message('pitchwheel', channel=0, pitch=-1638))
-    track1.append(Message('pitchwheel', channel=1, pitch=-1229))
-    track2.append(Message('pitchwheel', channel=2, pitch=-819))
-    track3.append(Message('pitchwheel', channel=3, pitch=-410))
-    track5.append(Message('pitchwheel', channel=5, pitch=410))
-    track6.append(Message('pitchwheel', channel=6, pitch=819))
-    track7.append(Message('pitchwheel', channel=7, pitch=1229))
-    track8.append(Message('pitchwheel', channel=8, pitch=1638))
-    track10.append(Message('pitchwheel', channel=10, pitch=-2048))
-    track11.append(Message('pitchwheel', channel=11, pitch=2048))
+    track1.append(Message('pitchwheel', channel=1, pitch=410))
+    track2.append(Message('pitchwheel', channel=2, pitch=819))
+    track3.append(Message('pitchwheel', channel=3, pitch=1229))
+    track4.append(Message('pitchwheel', channel=4, pitch=1638))
+    track5.append(Message('pitchwheel', channel=5, pitch=2048))
+    track6.append(Message('pitchwheel', channel=6, pitch=-2048))
+    track7.append(Message('pitchwheel', channel=7, pitch=-1638))
+    track8.append(Message('pitchwheel', channel=8, pitch=-1229))
+    track10.append(Message('pitchwheel', channel=10, pitch=-819))
+    track11.append(Message('pitchwheel', channel=11, pitch=-410))
     for i in range(1, half_n):
         if abs(F.imag[i]/N) > 4: #音量の閾値 無いと負荷でマズイ
             i_sec = i/sec # i/secが周波数
@@ -54,41 +54,41 @@ def data2midi(F, fs, N):
                     rounded_midinote = int(round(beforenote, 0))
                     rounded_volume = int(round(maxvolume, 0))
                     if not rounded_volume == 0:
-                        if syosu == 0.6:
+                        if syosu == 0.0:
                             otolist0.append(rounded_midinote)
                             track0.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=0, time=00))
-                        elif syosu == 0.7:
+                        elif syosu == 0.1:
                             otolist1.append(rounded_midinote)
                             track1.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=1, time=00))
-                        elif syosu == 0.8:
+                        elif syosu == 0.2:
                             otolist2.append(rounded_midinote)
                             track2.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=2, time=00))
-                        elif syosu == 0.9:
+                        elif syosu == 0.3:
                             otolist3.append(rounded_midinote)
                             track3.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=3, time=00))
-                        elif syosu == 0.0:
+                        elif syosu == 0.4:
                             otolist4.append(rounded_midinote)
                             track4.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=4, time=00))
-                        elif syosu == 0.1:
-                            otolist5.append(rounded_midinote)
-                            track5.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=5, time=00))
-                        elif syosu == 0.2:
-                            otolist6.append(rounded_midinote)
-                            track6.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=6, time=00))
-                        elif syosu == 0.3:
-                            otolist7.append(rounded_midinote)
-                            track7.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=7, time=00))
-                        elif syosu == 0.4:
-                            otolist8.append(rounded_midinote)
-                            track8.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=8, time=00))
                         elif syosu == 0.5:
                             note_note = midinote - rounded_midinote
-                            if note_note < 0:
-                                otolist10.append(rounded_midinote)
-                                track10.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=10, time=00))
-                            else:
-                                otolist11.append(rounded_midinote)
-                                track11.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=11, time=00))
+                            if note_note > 0: #38.5→38
+                                otolist5.append(rounded_midinote)
+                                track5.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=5, time=00))
+                            else: #33.5→34
+                                otolist6.append(rounded_midinote)
+                                track6.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=6, time=00))
+                        elif syosu == 0.6:
+                            otolist7.append(rounded_midinote)
+                            track7.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=7, time=00))
+                        elif syosu == 0.7:
+                            otolist8.append(rounded_midinote)
+                            track8.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=8, time=00))
+                        elif syosu == 0.8:
+                            otolist10.append(rounded_midinote)
+                            track10.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=10, time=00))
+                        elif syosu == 0.9:
+                            otolist11.append(rounded_midinote)
+                            track11.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=11, time=00))
                     beforenote, maxvolume = incomp_rounded_midinote, volume
                 elif volume > maxvolume: #同じ音階なら音量を今までの最大値にする
                     maxvolume = volume
@@ -212,12 +212,12 @@ def audio_split(data, win_size):
     return splited_data
 
 
-def downsampling(conversion_rate, data, fs): #args(downsamp,data,nowsamp) return(data,downsamp)
+def downsampling(conversion_rate, data, fs):
     # FIRフィルタ
     nyqF = fs/2                       # 変換前のナイキスト周波数
-    cF = (conversion_rate/2-500)/nyqF # カットオフ周波数を設定（変換後のナイキスト周波数より少し下を設定）
-    taps = 511                        # フィルタ係数（奇数じゃないとだめ）
-    b = firwin(taps, cF)   # LPFを用意
+    cF = (conversion_rate/2-500)/nyqF # カットオフ周波数
+    taps = 511                        # フィルタ係数
+    b = firwin(taps, cF)   # LPF
     # フィルタリング
     data = lfilter(b, 1, data)
 
