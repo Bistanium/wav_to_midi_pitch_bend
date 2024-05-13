@@ -32,19 +32,6 @@ def data2midi(F, fs, N):
 
                 #音量計算
                 volume = (abs(F.imag[i]/N*2) ** (1.8/3))
-                # 音量調整
-                if midinote < 56:
-                    volume = volume * 0.8
-                    if midinote < 48:
-                        volume = volume * 0.7
-                        if midinote < 41:
-                            volume = volume * 0.6
-                if midinote > 107:
-                    volume = volume * 0.8
-                    if midinote > 112:
-                        volume = volume * 0.7
-                        if midinote > 118:
-                            volume = volume * 0.6
                 if volume > 127: volume = 127
 
                 incomp_rounded_midinote = round(midinote, 1)
