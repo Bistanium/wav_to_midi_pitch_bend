@@ -1,4 +1,4 @@
-# Wav to MIDI using Fourier transform and Pitch Bend
+# [With Pitch Bend] WAV to MIDI using Fourier transform
 
 [ピッチベンド有り(With pitch bend)](https://github.com/Bistanium/wav_to_midi_pitch_bend)
 
