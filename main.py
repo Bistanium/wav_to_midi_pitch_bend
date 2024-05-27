@@ -12,18 +12,17 @@ def data2midi(F, fs, N):
     sec = N / fs
     soundtime = int(round(120*sec, 0))
     beforenote, maxvolume = 0, 0
-    count0 = count1 = count2 = count3 = count4 = count5 = count6 = count7 = count8 = count10 = count11 = 0
-    otolist0, otolist1, otolist2, otolist3, otolist4, otolist5, otolist6, otolist7, otolist8, otolist10, otolist11 = [35], [35], [35], [35], [35], [35], [35], [35], [35], [35], [35]
+    count0 = count1 = count2 = count3 = count4 = count5 = count6 = count7 = count8 = count10 = 0
+    otolist0, otolist1, otolist2, otolist3, otolist4, otolist5, otolist6, otolist7, otolist8, otolist10 = [35], [35], [35], [35], [35], [35], [35], [35], [35], [35]
     track1.append(Message('pitchwheel', channel=1, pitch=410))
     track2.append(Message('pitchwheel', channel=2, pitch=819))
     track3.append(Message('pitchwheel', channel=3, pitch=1229))
     track4.append(Message('pitchwheel', channel=4, pitch=1638))
-    track5.append(Message('pitchwheel', channel=5, pitch=2048))
-    track6.append(Message('pitchwheel', channel=6, pitch=-2048))
-    track7.append(Message('pitchwheel', channel=7, pitch=-1638))
-    track8.append(Message('pitchwheel', channel=8, pitch=-1229))
-    track10.append(Message('pitchwheel', channel=10, pitch=-819))
-    track11.append(Message('pitchwheel', channel=11, pitch=-410))
+    track5.append(Message('pitchwheel', channel=5, pitch=-2048))
+    track6.append(Message('pitchwheel', channel=6, pitch=-1638))
+    track7.append(Message('pitchwheel', channel=7, pitch=-1229))
+    track8.append(Message('pitchwheel', channel=8, pitch=-819))
+    track10.append(Message('pitchwheel', channel=10, pitch=-410))
     for i in range(1, half_n):
         if abs(F.imag[i]/N) > 4: # 音量の閾値 無いと負荷でマズイ
             i_sec = i/sec # i/secが周波数
@@ -58,25 +57,23 @@ def data2midi(F, fs, N):
                             otolist4.append(rounded_midinote)
                             track4.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=4, time=00))
                         elif syosu == 0.5:
-                            note_note = midinote - rounded_midinote
-                            if note_note > 0: # 38.5→38
+                            if beforenote - rounded_midinote > 0: # 四捨五入(38.5→38)になるとき
+                                rounded_midinote = rounded_midinote + 1
+                            if not rounded_midinote in otolist5: # 重複チェック
                                 otolist5.append(rounded_midinote)
                                 track5.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=5, time=00))
-                            else: # 33.5→34
-                                otolist6.append(rounded_midinote)
-                                track6.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=6, time=00))
                         elif syosu == 0.6:
+                            otolist6.append(rounded_midinote)
+                            track6.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=6, time=00))
+                        elif syosu == 0.7:
                             otolist7.append(rounded_midinote)
                             track7.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=7, time=00))
-                        elif syosu == 0.7:
+                        elif syosu == 0.8:
                             otolist8.append(rounded_midinote)
                             track8.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=8, time=00))
-                        elif syosu == 0.8:
+                        elif syosu == 0.9:
                             otolist10.append(rounded_midinote)
                             track10.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=10, time=00))
-                        elif syosu == 0.9:
-                            otolist11.append(rounded_midinote)
-                            track11.append(Message('note_on', note=rounded_midinote, velocity=rounded_volume, channel=11, time=00))
                     beforenote, maxvolume = incomp_rounded_midinote, volume
                 elif volume > maxvolume: # 同じ音階なら音量を今までの最大値にする
                     maxvolume = volume
@@ -141,12 +138,6 @@ def data2midi(F, fs, N):
             track10.append(Message('note_off', note=j, channel=10, time=soundtime))
         else:
             track10.append(Message('note_off', note=j, channel=10, time=0))
-    for j in otolist11:
-        count11 += 1
-        if count11 == 1:
-            track11.append(Message('note_off', note=j, channel=11, time=soundtime))
-        else:
-            track11.append(Message('note_off', note=j, channel=11, time=0))
 
 
 # Wave読み込み
@@ -216,31 +207,11 @@ def downsampling(conversion_rate, data, fs):
 
 
 if __name__ == '__main__':
-    
+
     # midi定義
     mid = MidiFile()
-    track0, track1, track2, track3, track4, track5, track6, track7, track8, track10, track11 = MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack()
-    mid.tracks.extend([track0, track1, track2, track3, track4, track5, track6, track7, track8, track10, track11])
- 
-    # Wav読み込み
-    data_l,data_r = read_wav("test.wav")
-    del data_r
-
-    # Wavの情報取得
-    wi = info_wav("test.wav")
-
-    # ダウンサンプリング
-    if wi["fs"] > 40960:
-        new_fs = 40960
-        downed_data = downsampling(new_fs, data_l, wi["fs"])
-        del data_l
-    else:
-        new_fs = wi["fs"]
-        downed_data = data_l
-        del data_l
-
-    # ウィンドウサイズ
-    win_size = 1024 * 16
+    track0, track1, track2, track3, track4, track5, track6, track7, track8, track10 = MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack(), MidiTrack()
+    mid.tracks.extend([track0, track1, track2, track3, track4, track5, track6, track7, track8, track10])
 
     # テンポ
     miditempo = MetaMessage('set_tempo', tempo=mido.bpm2tempo(480))
@@ -254,7 +225,25 @@ if __name__ == '__main__':
     track7.append(miditempo)
     track8.append(miditempo)
     track10.append(miditempo)
-    track11.append(miditempo)
+
+    # Wav読み込み
+    data_l,data_r = read_wav("test.wav")
+    del data_r
+
+    # Wavの情報取得
+    wi = info_wav("test.wav")
+
+    # ダウンサンプリング
+    if wi["fs"] > 40960:
+        new_fs = 40960
+        downed_data = downsampling(new_fs, data_l, wi["fs"])
+    else: #アップサンプリングは実装予定
+        new_fs = wi["fs"]
+        downed_data = data_l
+    del data_l
+
+    # ウィンドウサイズ
+    win_size = 1024 * 16
 
     # データ分割
     splited_data = audio_split(downed_data, win_size)
