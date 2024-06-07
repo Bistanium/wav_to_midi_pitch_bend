@@ -116,7 +116,10 @@ def upsampling(up_fs, data, fs):
 
     # 補間処理
     x = np.arange(0, len(data))
-    interpolated = interpolate.interp1d(x, data, kind="cubic")
+    try:
+        interpolated = interpolate.interp1d(x, data, kind="cubic")
+    except:
+        interpolated = interpolate.interp1d(x, data, kind="linear")
     upsampled_length = int(round(len(data) * up_fs / fs, 0))
     uplate = np.linspace(0, len(data) - 1, upsampled_length)
     uped_data = interpolated(uplate)
