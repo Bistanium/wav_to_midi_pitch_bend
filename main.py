@@ -14,7 +14,7 @@ def data2midi(F, fs, N):
     beforenote, maxvolume = 0, 0
     otolist = [[0] for _ in range(10)]
     time = int(round(120 * sec, 0))
-    volumes = (abs(F) / N * 1.4) ** 0.6
+    volumes = (abs(F) / N * 2) ** 0.6 * 0.8
     # pitchbend
     pitches = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410]
     for i in range(1, 10):
