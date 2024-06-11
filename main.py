@@ -9,13 +9,12 @@ from scipy.signal import firwin, lfilter
 
 # midi化関数
 def data2midi(F, fs, N):
-    absF = abs(F.imag)
     half_n = N // 2
     sec = N / fs
-    soundtime = int(round(120 * sec, 0))
     beforenote, maxvolume = 0, 0
-    otolist = [[35] for _ in range(10)]
-
+    otolist = [[0] for _ in range(10)]
+    time = int(round(120 * sec, 0))
+    volumes = (abs(F) / N * 1.4) ** 0.6
     # pitchbend
     pitches = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410]
     for i in range(1, 10):
@@ -23,38 +22,37 @@ def data2midi(F, fs, N):
         tracks[i].append(Message('pitchwheel', channel=ch, pitch=pitches[i]))
 
     for i in range(1, half_n):
-        if absF[i] / N > 4: # 音量の閾値 無いと負荷でマズイ
+        volume = volumes[i]
+        if volume > 4: # 音量の閾値 負荷によって調整
             i_sec = i / sec # 周波数
-            if 64 < i_sec < 11175: # midiの範囲に収める
+            if 64 < i_sec < 11175: # midiの範囲を指定
                 # ノート番号計算
-                midinote = 69 + log10(i_sec / 440) / 0.025085832972
-                # 音量計算
-                volume = ((absF[i] / N * 2) ** (1.8 / 3))
-                if volume > 127: volume = 127
+                midinote = round(69 + log10(i_sec / 440) / 0.025085832972, 1)
 
-                incomp_rounded_note = round(midinote, 1)
-                if beforenote != incomp_rounded_note: # 音が変わったら前の音階をmidiに打ち込む
+                if beforenote != midinote: # 音が変わったら前の音階をmidiに打ち込む
                     syosu, seisu = modf(beforenote) # 整数部分と小数部分の分離
                     syosu = round(syosu, 1)
+                    if maxvolume > 127:
+                        maxvolume = 127
                     rounded_note, rounded_volume = int(round(beforenote, 0)), int(round(maxvolume, 0))
                     if syosu == 0.5:
                         if beforenote - rounded_note > 0: # 四捨五入(38.5→38)になるとき
                             rounded_note = rounded_note + 1 # 39にして正しい四捨五入にする
                         if rounded_note in otolist[5]: # 重複チェック
                             continue
-                    tracknum = int(syosu*10) #トラックと対応させる
+                    tracknum = int(syosu*10) # トラックと対応させる
                     ch = tracknum if tracknum != 9 else 10
                     otolist[tracknum].append(rounded_note)
                     tracks[tracknum].append(Message('note_on', note=rounded_note, velocity=rounded_volume, channel=ch, time=00))
-                    beforenote, maxvolume = incomp_rounded_note, volume
-                elif volume > maxvolume: # 同じ音階なら音量を今までの最大値にする
+                    beforenote, maxvolume = midinote, volume
+                elif volume > maxvolume: # 同じ音階なら条件付きで音量を更新
                     maxvolume = volume
 
     for i, track in enumerate(tracks):
         ch = i if i != 9 else 10
         for j, note in enumerate(otolist[i]):
             if j == 0:
-                track.append(Message('note_off', note=note, channel=ch, time=soundtime))
+                track.append(Message('note_off', note=note, channel=ch, time=time))
             else:
                 track.append(Message('note_off', note=note, channel=ch, time=0))
 
