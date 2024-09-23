@@ -13,9 +13,8 @@ import gc
 
 
 # midi化関数
-def data2midi(F, fs, N, bol, start_note, end_note, use_bend, next_tick, min_vol=8):
+def data2midi(F, fs, N, bol, start_note, end_note, use_bend, next_tick, min_vol=4):
     sec = N / fs
-    half_min_vol = min_vol // 2
     before_midi_note, max_volume = 0, 0
     otolist = [[0 for _ in range(128)] for _ in range(10)]
 
@@ -30,7 +29,7 @@ def data2midi(F, fs, N, bol, start_note, end_note, use_bend, next_tick, min_vol=
     range_end = int(sec * 440 * 1.0594630943593 ** (end_note - 69) * 1.1)
     for i in range(range_start, range_end):
         volume = volumes[i]
-        if volume > half_min_vol:
+        if volume > min_vol:
             # ノート番号計算
             midi_note = 69 + log10(i / sec / 440) / 0.025085832972
             round_1_midi_note = round(midi_note * 10) / 10
@@ -60,16 +59,20 @@ def data2midi(F, fs, N, bol, start_note, end_note, use_bend, next_tick, min_vol=
 
                 midi_note_syosu, midi_note_seisu = modf(before_midi_note) # 整数部分と小数部分の分離
                 midi_note_syosu = round(midi_note_syosu * 10) / 10
-                max_volume *= 0.35 # 音量調整
+
+                # 音量調整
+                max_volume *= 0.35
                 max_volume = max_volume if max_volume <= 127 else 127
+
                 round_0_midi_note, round_0_volume = int(round(before_midi_note)), int(round(max_volume))
-                
+
                 if round_0_midi_note > 127:
                     continue
 
                 if midi_note_syosu == 0.5:
-                    if before_midi_note - round_0_midi_note > 0: # 38.5→38になるとき
-                        round_0_midi_note = round_0_midi_note + 1 # 39にして正しい四捨五入にする        
+                    # round half up
+                    if before_midi_note - round_0_midi_note > 0:
+                        round_0_midi_note = round_0_midi_note + 1        
                         if otolist[5][round_0_midi_note] != 0:
                             continue
 
@@ -102,7 +105,7 @@ def data2midi(F, fs, N, bol, start_note, end_note, use_bend, next_tick, min_vol=
         max_bend = 4096 # 5つ目以上のトラックのピッチベンド幅が0のときに-4096になるのを防ぐ
         bend_values = np.array([409.6 * (bend * 10) if i < 5 else -409.6 * ((1 - bend) * 10) for i, bend in enumerate(bend_averages)])
         bend_values = np.clip(bend_values, -max_bend, max_bend)
-        bend_values[np.abs(bend_values) == max_bend] = 0  # 範囲外の値を0に設定s
+        bend_values[np.abs(bend_values) == max_bend] = 0  # 範囲外の値を0に設定
         bend_values = np.round(bend_values).astype(int)
         # bend_values = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410] 固定用
     for i, track in enumerate(tracks):
@@ -115,7 +118,8 @@ def data2midi(F, fs, N, bol, start_note, end_note, use_bend, next_tick, min_vol=
             before_vol = before_volume_list[j]
             now_vol = volume_list[j]
             if before_vol != 0:
-                if now_vol < before_vol - sim or before_vol + sim < now_vol or now_vol < min_vol or now_vol == 0: # 音量変化が指定値より大きいor閾値以下のとき
+                # 音量変化が指定値より大きいor閾値以下のとき
+                if now_vol < before_vol - sim or before_vol + sim < now_vol or now_vol < min_vol or now_vol == 0:
                     track.append(Message('note_off', note=j, channel=ch, time=0))
                     if now_vol > min_vol:
                         track.append(Message('note_on', note=j, velocity=now_vol, channel=ch, time=0))
@@ -228,18 +232,18 @@ def change_samplingrate(data, fs, target_fs, amp):
     data = data / 32768
 
     #サンプリングレート変換
-    downed_data = resample_poly(data, target_fs, fs)
+    changed_data = resample_poly(data, target_fs, fs)
 
     # データを浮動小数点で正規化
-    downed_data = downed_data * amp
+    changed_data = changed_data * amp
 
     # 最大値と最小値に収める
-    downed_data = np.clip(downed_data, -32768, 32767)
+    changed_data = np.clip(changed_data, -32768, 32767)
 
     # 整数型に変換
-    downed_data = downed_data.astype(np.int16)
+    changed_data = changed_data.astype(np.int16)
 
-    return downed_data
+    return changed_data
 
 
 if __name__ == '__main__':
@@ -263,7 +267,7 @@ if __name__ == '__main__':
         count = 1
         while True:
             out_midi_name = f"{str(os.path.splitext(input_name)[0])} ({count}).mid"
-            if not os.path.isfile(out_midi_name) or count > 10:
+            if not os.path.isfile(out_midi_name) or count >= 10:
                 break
             count += 1
 
@@ -272,7 +276,7 @@ if __name__ == '__main__':
 
     # midi定義
     mid = MidiFile()
-    tracks = [MidiTrack() for _ in range(10)] #10個のトラックを作成
+    tracks = [MidiTrack() for _ in range(10)] # 10個のトラックを作成
     mid.tracks.extend(tracks)
 
     tracks[0].append(MetaMessage('set_tempo', tempo=mido.bpm2tempo(480)))
@@ -284,6 +288,7 @@ if __name__ == '__main__':
     wi = info_wav(input_name)
 
     print("\n再サンプリング&データ分割開始")
+
     # 再サンプリング
     new_fs_high = 40960
     new_fs = 10240
@@ -300,6 +305,7 @@ if __name__ == '__main__':
     splited_data_low = audio_split(samped_data_low, window_size // 16, window_func="hamming")
 
     print("再サンプリング&データ分割完了\n")
+
     del data, samped_data_high, samped_data, samped_data_low
     gc.collect()
 
@@ -340,4 +346,5 @@ if __name__ == '__main__':
         track.append(Message('note_off', note=0, channel=ch, time=note_time))
 
     print("\nMIDI保存中...")
+
     mid.save(out_midi_name)
