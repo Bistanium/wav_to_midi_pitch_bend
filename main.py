@@ -1,106 +1,133 @@
-import mido
-from mido import Message, MidiFile, MidiTrack, MetaMessage
-from math import log10, modf, sqrt
 import wave
+from math import log10, modf, sqrt
+import os
+import tkinter, tkinter.filedialog
+import sys
 import numpy as np
 from numpy.fft import fft
-from scipy import interpolate
-from scipy.signal import firwin, lfilter
+from scipy.signal import resample_poly
+import mido
+from mido import Message, MidiFile, MidiTrack, MetaMessage
+from tqdm import tqdm
+import gc
+
 
 # midi化関数
-def data2midi(F, fs, N, bol, minvol, overlap=2, m_q=1, z_p_m=1):
-    half_n = N // 2
+def data2midi(F, fs, N, bol, start_note, end_note, use_bend, next_tick, min_vol=8):
     sec = N / fs
-    beforenote, maxvolume = 0, 0
+    half_min_vol = min_vol // 2
+    before_midi_note, max_volume = 0, 0
     otolist = [[0 for _ in range(128)] for _ in range(10)]
-    ntime = int(round(240 * sec / overlap / z_p_m, 0))
-    volumes = (np.abs(F) / N * 2) ** 0.6 * m_q
-    bendaves, bendave, beforeseisu, volumesum = [0 for _ in range(10)], 0, 0, 0
 
-    for i in range(1, half_n):
+    # 音量はそれっぽく聴こえるようにした結果こうなった
+    volumes = (np.abs(F) / N * 4) ** 0.6
+
+    if use_bend:
+        bend_averages = [0 for _ in range(10)]
+        bend_average, before_bend_seisu, volume_sum = 0, 0, 0
+
+    range_start = int(sec * 440 * 1.0594630943593 ** (start_note - 69) * 0.9)
+    range_end = int(sec * 440 * 1.0594630943593 ** (end_note - 69) * 1.1)
+    for i in range(range_start, range_end):
         volume = volumes[i]
-        if volume > minvol:
-            i_sec = i / sec # 周波数
-            if 32 < i_sec < 12873: # midiの範囲を指定
-                # ノート番号計算
-                raw_note = 69 + log10(i_sec / 440) / 0.025085832972
-                midinote = round(raw_note, 1)
+        if volume > half_min_vol:
+            # ノート番号計算
+            midi_note = 69 + log10(i / sec / 440) / 0.025085832972
+            round_1_midi_note = round(midi_note * 10) / 10
 
+            if use_bend:
                 # 可変ピッチベンド
-                bendsyosu, bendseisu = modf(raw_note)
-                bendseisu = int(bendseisu)
-                bendsyosu = round(bendsyosu, 8)
+                bend_syosu, bend_seisu = modf(midi_note)
+                bend_syosu, bend_seisu = round(bend_syosu * 100000000) / 100000000, int(bend_seisu) # (小数第8位まで残す)
                 # 39.99→40.01などに切り替わるときの対応
-                if beforeseisu == bendseisu - 1:
-                    bendsyosu += 1
+                if before_bend_seisu == bend_seisu - 1:
+                    bend_syosu += 1
                 else:
-                    beforeseisu = bendseisu
-                # 可変はこれまでの平均にする
-                if bendave == 0:
-                    bendave = bendsyosu * volume
-                else:
-                    bendave = bendave + bendsyosu * volume
-                volumesum += volume
+                    before_bend_seisu = bend_seisu
 
-                if beforenote != midinote: # 音が変わったら前の音階をmidiに打ち込む
+                # 音量に応じて重みを付ける
+                bend_average += bend_syosu * volume
+
+                volume_sum += volume
+
+            if before_midi_note != round_1_midi_note: # 音が変わったら前の音階をmidiに打ち込む
+                if use_bend:
                     # 次の音の値まで入っているから除く
-                    if volumesum == volume:
-                        bendave /= volume
+                    if volume_sum == volume:
+                        bend_average /= volume
                     else:
-                        bendave = (bendave - bendsyosu * volume) / (volumesum - volume)
+                        bend_average = (bend_average - bend_syosu * volume) / (volume_sum - volume)
 
-                    syosu, seisu = modf(round(beforenote, 1)) # 整数部分と小数部分の分離
-                    syosu = round(syosu, 1)
-                    maxvolume *= 0.5 * (1 / m_q) # 音量調整 2のとき0.25, 1.2のとき0.4167
-                    maxvolume = maxvolume if maxvolume <= 127 else 127
-                    rounded_note, rounded_volume = int(round(beforenote, 0)), int(round(maxvolume, 0))
-                    if syosu == 0.5:
-                        if beforenote - rounded_note > 0: # 38.5→38になるとき
-                            rounded_note = rounded_note + 1 # 39にして正しい四捨五入にする
-                            if otolist[5][rounded_note] != 0:
-                                continue
+                midi_note_syosu, midi_note_seisu = modf(before_midi_note) # 整数部分と小数部分の分離
+                midi_note_syosu = round(midi_note_syosu * 10) / 10
+                max_volume *= 0.35 # 音量調整
+                max_volume = max_volume if max_volume <= 127 else 127
+                round_0_midi_note, round_0_volume = int(round(before_midi_note)), int(round(max_volume))
+                
+                if round_0_midi_note > 127:
+                    continue
 
-                    tracknum = int(syosu * 10) # トラックと対応させる
-                    otolist[tracknum][rounded_note] = rounded_volume
+                if midi_note_syosu == 0.5:
+                    if before_midi_note - round_0_midi_note > 0: # 38.5→38になるとき
+                        round_0_midi_note = round_0_midi_note + 1 # 39にして正しい四捨五入にする        
+                        if otolist[5][round_0_midi_note] != 0:
+                            continue
 
-                    # 0つ目のトラックのピッチベンド幅の変換など
-                    if tracknum == 0 and bendave > 0.5:
-                        bendave -= 1
-                    if bendaves[tracknum] == 0:
-                        bendaves[tracknum] = bendave
-                    bendaves[tracknum] = (bendaves[tracknum] + bendave) / 2
-                    if bendsyosu >= 1:
-                        bendsyosu -= 1
+                track_num = int(midi_note_syosu * 10) # トラックと対応させる
 
-                    beforeseisu, bendave, volumesum = bendseisu, bendsyosu * volume, volume # ピッチベンド用
-                    beforenote, maxvolume = midinote, volume
-                else:
-                    maxvolume = sqrt(maxvolume ** 2 + volume ** 2)
+                otolist[track_num][round_0_midi_note] = round_0_volume
+
+                if use_bend:
+                    # 0つ目のトラックのピッチベンド幅の変換
+                    if track_num == 0 and bend_average > 0.5:
+                        bend_average -= 1
+                    if bend_syosu >= 1:
+                        bend_syosu -= 1
+
+                    bend_averages_track_num = bend_averages[track_num]
+                    if bend_averages_track_num == 0:
+                        bend_averages[track_num] = bend_average
+                    else:
+                        bend_averages[track_num] = (bend_averages_track_num + bend_average) / 2
+
+                    before_bend_seisu, bend_average, volume_sum = bend_seisu, bend_syosu * volume, volume # ピッチベンド用
+
+                before_midi_note, max_volume = round_1_midi_note, volume
+            else:
+                max_volume = sqrt(max_volume ** 2 + volume ** 2)
+
 
     sim = 2 # 2~4が良い, -1でノートを繋げる機能無効化
-    max_bend = 4096 # 5つ目以上のトラックのピッチベンド幅が0のときに-4096になるのを防ぐ
-    bend_values = np.array([409.6 * (bend * 10) if i < 5 else -409.6 * ((1 - bend) * 10) for i, bend in enumerate(bendaves)])
-    bend_values = np.clip(bend_values, -max_bend, max_bend)
-    bend_values[np.abs(bend_values) == max_bend] = 0  # 範囲外の値を0に設定
+    if use_bend:
+        max_bend = 4096 # 5つ目以上のトラックのピッチベンド幅が0のときに-4096になるのを防ぐ
+        bend_values = np.array([409.6 * (bend * 10) if i < 5 else -409.6 * ((1 - bend) * 10) for i, bend in enumerate(bend_averages)])
+        bend_values = np.clip(bend_values, -max_bend, max_bend)
+        bend_values[np.abs(bend_values) == max_bend] = 0  # 範囲外の値を0に設定s
+        bend_values = np.round(bend_values).astype(int)
+        # bend_values = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410] 固定用
     for i, track in enumerate(tracks):
         ch = i if i != 9 else 10
-        track.append(Message('pitchwheel', channel=ch, pitch=int(round(bend_values[i], 0))))
-        before_vol_list = bol[i]
-        vol_list = otolist[i]
-        for j in range(24, 128):
-            beforevol = before_vol_list[j]
-            nowvol = vol_list[j]
-            if beforevol != 0:
-                if nowvol < beforevol - sim or beforevol + sim < nowvol or nowvol < minvol or nowvol == 0: # 音量変化が指定値より大きいor閾値以下のとき
+        if use_bend:
+            track.append(Message('pitchwheel', channel=ch, pitch=bend_values[i]))
+        before_volume_list = bol[i]
+        volume_list = otolist[i]
+        for j in range(start_note, end_note):
+            before_vol = before_volume_list[j]
+            now_vol = volume_list[j]
+            if before_vol != 0:
+                if now_vol < before_vol - sim or before_vol + sim < now_vol or now_vol < min_vol or now_vol == 0: # 音量変化が指定値より大きいor閾値以下のとき
                     track.append(Message('note_off', note=j, channel=ch, time=0))
-                    if nowvol > minvol:
-                        track.append(Message('note_on', note=j, velocity=nowvol, channel=ch, time=0))
-                else: # nowvol >= beforevol - sim and beforevol + sim >= nowvol
-                    otolist[i][j] = beforevol
+                    if now_vol > min_vol:
+                        track.append(Message('note_on', note=j, velocity=now_vol, channel=ch, time=0))
+                else: # now_vol >= before_vol - sim and before_vol + sim >= now_vol
+                    otolist[i][j] = before_vol
             else: # 前の音がなかったとき
-                if nowvol > minvol:
-                    track.append(Message('note_on', note=j, velocity=nowvol, channel=ch, time=0))
-        track.append(Message('note_off', note=0, channel=ch, time=ntime))
+                if now_vol > min_vol:
+                    track.append(Message('note_on', note=j, velocity=now_vol, channel=ch, time=0))
+
+        if next_tick:
+            note_time = int(round(120 * sec))
+            track.append(Message('note_off', note=0, channel=ch, time=note_time))
 
     return otolist
 
@@ -110,11 +137,11 @@ def read_wav(file_path):
     wf = wave.open(file_path, "rb")
     buf = wf.readframes(-1) # 全部読み込む
 
-    # 16bitごとに10進数化
+    # 16bitのときのみ10進数化
     if wf.getsampwidth() == 2:
         data = np.frombuffer(buf, dtype=np.int16)
     else:
-        data = np.zeros(len(buf), dtype=np.complex128)
+        sys.exit("ビット深度が16bit以外です")
 
     # ステレオの場合左音声のみ
     if wf.getnchannels() == 2:
@@ -139,91 +166,109 @@ def info_wav(file_path):
 
 
 # データ分割
-def audio_split(data, win_size, overlap=2, zero_padding_multiplier=1):
-    splited_data = []
+def audio_split(data, win_size, window_func="hamming", overlap=2):
     len_data = len(data)
-    win = np.hanning(win_size)
+    if window_func == "hamming":
+        win = np.hamming(win_size) * 0.94 # hann窓との比
+    else:
+        win = np.hanning(win_size)
+    
+    # 主ループの高速化
+    step_size = win_size // overlap
+    num_segments = (len_data - win_size) // step_size + 1
 
-    # ゼロ埋めに使用するサイズを計算
-    padded_size = win_size * zero_padding_multiplier
+    # 各セグメントの開始インデックスを計算
+    indices = np.arange(0, num_segments * step_size, step_size)
 
-    for i in range(0, len_data, win_size // overlap):
-        endi = i + win_size
-        if endi < len_data:
-            segment = data[i:endi] * win
+    # ウィンドウをかけた後の分割データを格納する配列を準備, 窓サイズ未満のデータの行+4つ分空の行=5
+    splited_data = np.zeros((num_segments + 5, win_size), dtype=np.int16)
+
+    for idx, start in enumerate(indices):
+        end = start + win_size
+        segment = data[start:end]
+    
+        # ウィンドウをかける
+        win_segment = segment * win
+
+        # 結果を保存
+        splited_data[idx, :] = win_segment
+
+    # 最後のセグメント処理（残りのデータがある場合）
+    remaining = len_data - indices[-1] - win_size
+    if remaining > 0:
+        # 1を引いてインデックスのずれを合わせる
+        segment = data[-remaining - 1:-1]
+        if window_func == "hamming":
+            win = np.hamming(len(segment)) * 0.94
         else:
-            win = np.hanning(len(data[i:-1]))
-            segment = data[i:-1] * win
+            win = np.hanning(len(segment))
+        win_segment = segment * win
 
-        if zero_padding_multiplier != 1:
-            # ゼロパディングを適用
-            padded_segment = np.pad(segment, (0, padded_size - len(segment)), 'constant')
+        # ゼロパディング
+        padded_segment = np.pad(win_segment, (0, win_size - len(win_segment)), 'constant')
 
-            # 振幅補正
-            if sum(np.abs(padded_segment)) != 0:
-                acf = (sum(np.abs(segment)) / len(segment)) / (sum(np.abs(padded_segment)) / len(padded_segment)) / sqrt(zero_padding_multiplier)
-            else:
-                acf = 0
-        else:
-            padded_segment = segment
-            acf = 1
-
-        splited_data.append(padded_segment * acf)
+        # 結果を保存
+        splited_data[-5, :] = padded_segment
 
     return splited_data
 
 
-def upsampling(up_fs, data, fs):
-    # FIRフィルタ
-    nyqF = up_fs / 2          # 変換前のナイキスト周波数
-    cF = (fs / 2 - 500) / nyqF  # カットオフ周波数
-    taps = 511                # フィルタ係数
-    b = firwin(taps, cF)      # LPF
+def return_amp(data):
+    # プラスとマイナスの絶対値が大きい方
+    data_max_val = max(np.max(data), -(np.min(data) + 1))
 
-    # 補間処理
-    x = np.arange(0, len(data))
-    try:
-        interpolated = interpolate.interp1d(x, data, kind="cubic")
-    except ValueError:
-        interpolated = interpolate.interp1d(x, data, kind="linear")
-    upsampled_length = int(round(len(data) * (up_fs / fs), 0))
-    uplate = np.linspace(0, len(data) - 1, upsampled_length)
-    uped_data = interpolated(uplate)
+    # 0.9倍して再サンプリング後のデータがin16の上限を超えないようにする
+    amp = data_max_val * 0.9
 
-    # フィルタリング
-    uped_data = lfilter(b, 1, uped_data)
-    return uped_data
+    return amp
 
 
-def downsampling(down_fs, data, fs):
-    nyqF = down_fs / 2
-    cF = (nyqF - 500) / (fs / 2)
-    taps = 511
-    b = firwin(taps, cF)
-    # フィルタリング
-    data = lfilter(b, 1, data)
+def change_samplingrate(data, fs, target_fs, amp):
+    # 16bit想定
+    data = data / 32768
 
-    # 間引き処理, ここで音質低下
-    len_data = len(data)
-    downsampled_length = int(round(len_data * (down_fs / fs), 0))
-    downlate = np.linspace(0, len_data - 1, downsampled_length)
-    rounded_indices = np.round(downlate).astype(int)
-    downed_data = data[rounded_indices]
+    #サンプリングレート変換
+    downed_data = resample_poly(data, target_fs, fs)
+
+    # データを浮動小数点で正規化
+    downed_data = downed_data * amp
+
+    # 最大値と最小値に収める
+    downed_data = np.clip(downed_data, -32768, 32767)
+
+    # 整数型に変換
+    downed_data = downed_data.astype(np.int16)
 
     return downed_data
 
 
 if __name__ == '__main__':
-    # Settings_Area
-    wav_name = "test.wav" # 入力されるWavファイル名
-    out_midi_name = "test_wav_pitch_bend.mid" # 出力されるMIDIファイル名    
-    midi_quality = 1 # 0.1~16まで。値が大きいと処理時間も増える
 
-    # 変えない方が良い
-    min_volume = 4 # MIDIの音量の最小値
-    window_size = 1024 * 16 # ウィンドウサイズ
-    overlap = 2 # 2:50%, 4:75%
-    zero_padding_multiplier = 2 #ゼロ埋め倍数
+    # 音声データパス
+    while True:
+        fTyp = [("Audio File", ".wav"), ("wav", ".wav")]
+        input_name = tkinter.filedialog.askopenfilename(filetypes = fTyp)
+
+        if input_name:
+            k = str(os.path.splitext(input_name)[1]) # kは拡張子の略
+            if k == ".wav":
+                break
+            else:
+                sys.exit("ファイルが正しくありません")
+        else:
+            sys.exit()
+
+    out_midi_name = f"{str(os.path.splitext(input_name)[0])}.mid"
+    if os.path.isfile(out_midi_name):
+        count = 1
+        while True:
+            out_midi_name = f"{str(os.path.splitext(input_name)[0])} ({count}).mid"
+            if not os.path.isfile(out_midi_name) or count > 10:
+                break
+            count += 1
+
+    # 高音部分のウィンドウサイズ
+    window_size = 1024 * 8 
 
     # midi定義
     mid = MidiFile()
@@ -233,50 +278,66 @@ if __name__ == '__main__':
     tracks[0].append(MetaMessage('set_tempo', tempo=mido.bpm2tempo(480)))
 
     # Wav読み込み
-    data = read_wav(wav_name)
+    data = read_wav(input_name)
 
     # Wavの情報取得
-    wi = info_wav(wav_name)
+    wi = info_wav(input_name)
 
+    print("\n再サンプリング&データ分割開始")
     # 再サンプリング
-    new_fs = 40960
-    if wi["fs"] > new_fs:
-        print("start")
-        samped_data = downsampling(new_fs, data, wi["fs"]) # ※間引き時に音質が劣化する
-        print("end")
-    elif wi["fs"] < new_fs:
-        samped_data = upsampling(new_fs, data, wi["fs"])
-    else:
-        samped_data = data
-    del data
+    new_fs_high = 40960
+    new_fs = 10240
+    new_fs_low = 640
 
-    # 一応範囲チェック&変数名を短くする
-    z_p_m = int(zero_padding_multiplier) if 1 <= zero_padding_multiplier <= 4 else 1
-    m_q = midi_quality if 0.1 <= midi_quality <= 16 else 1
+    amp = return_amp(data)
+    samped_data_high = change_samplingrate(data, wi["fs"], new_fs_high, amp)
+    samped_data = change_samplingrate(data, wi["fs"], new_fs, amp)
+    samped_data_low = change_samplingrate(data, wi["fs"], new_fs_low, amp)
 
     # データ分割
-    splited_data = audio_split(samped_data, window_size, overlap, z_p_m)
-    del samped_data
+    splited_data_high= audio_split(samped_data_high, window_size, window_func="hann")
+    splited_data = audio_split(samped_data, window_size // 2, window_func="hamming")
+    splited_data_low = audio_split(samped_data_low, window_size // 16, window_func="hamming")
 
-    bol = [[0 for _ in range(128)] for _ in range(10)] # before_oto_list
-    # FFT&midi化
+    print("再サンプリング&データ分割完了\n")
+    del data, samped_data_high, samped_data, samped_data_low
+    gc.collect()
+
+    before_otolist_high = [[0 for _ in range(128)] for _ in range(10)]
+    before_otolist = [[0 for _ in range(128)] for _ in range(10)]
+    before_otolist_low = [[0 for _ in range(128)] for _ in range(10)]
+
+    len_data_high = len(splited_data_high)
     len_data = len(splited_data)
-    for i in range(0, len_data):
-        ffted_data = fft(splited_data[i])
-        bol = data2midi(ffted_data, new_fs, len(ffted_data.imag), bol, min_volume, overlap, m_q, z_p_m)
+    len_data_low = len(splited_data_low)
 
-    # 最後のデータ分の処理
-    time = int(round(60 * (len_data/new_fs) * overlap, 0))
+    range_data = len_data * 2
+    range_data_low = len_data_low * 4
+
+    # FFT&midi化
+    for i in tqdm(range(0, len_data_high), desc='Convert to MIDI'):
+        # 低音用
+        if i % 4 == 0 and i < range_data_low:
+            ffted_data_low = fft(splited_data_low[i // 4])
+            before_otolist_low = data2midi(ffted_data_low, new_fs_low, len(ffted_data_low), before_otolist_low, start_note=24, end_note=48, use_bend=False, next_tick=False)
+
+        # 中音用
+        if i % 2 == 0 and i < range_data:
+            ffted_data = fft(splited_data[i // 2])
+            before_otolist = data2midi(ffted_data, new_fs, len(ffted_data), before_otolist, start_note=48, end_note=96, use_bend=True, next_tick=False)
+
+        # 高音用
+        ffted_data_high = fft(splited_data_high[i])
+        before_otolist_high = data2midi(ffted_data_high, new_fs_high, len(ffted_data_high), before_otolist_high, start_note=96, end_note=128, use_bend=False, next_tick=True)
+
+    del splited_data_high, splited_data, splited_data_low
+    gc.collect()
+
+    # (最後のデータは何もないので捨てる)
+    note_time = int(round(120 * (len_data_high/new_fs_high)))
     for i, track in enumerate(tracks):
         ch = i if i != 9 else 10
-        for j in range(24, 128):
-            if bol[i][j] > min_volume:
-                track.append(Message('note_on', note=j, velocity=bol[i][j], channel=ch, time=0))
-        # ノートオフ処理
-        for j in range(24, 128):
-            if j == 0:
-                track.append(Message('note_off', note=0, channel=ch, time=time))
-            else:
-                track.append(Message('note_off', note=j, channel=ch, time=0))
+        track.append(Message('note_off', note=0, channel=ch, time=note_time))
 
+    print("\nMIDI保存中...")
     mid.save(out_midi_name)
