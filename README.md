@@ -1,8 +1,6 @@
 # [With Pitch Bend] WAV to MIDI Converter in Python
 
-[ピッチベンド有り(With pitch bend)](https://github.com/Bistanium/wav_to_midi_pitch_bend)
-
-[ピッチベンド無し(Without pitch bend)](https://github.com/Bistanium/wav_to_midi)
+[ピッチベンド無し, Without pitch bend](https://github.com/Bistanium/wav_to_midi)
 
 フーリエ変換とピッチベンドを使ってWAVからMIDIへ変換
 (WAV to MIDI conversion using Fourier transform and pitch bend)
