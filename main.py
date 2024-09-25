@@ -173,18 +173,17 @@ def info_wav(file_path):
 def audio_split(data, win_size, window_func="hamming", overlap=2):
     len_data = len(data)
     if window_func == "hamming":
-        win = np.hamming(win_size) * 0.94 # hann窓との比
+        win = np.hamming(win_size) * 0.93 # hann窓との比
     else:
         win = np.hanning(win_size)
-    
-    # 主ループの高速化
+
     step_size = win_size // overlap
     num_segments = (len_data - win_size) // step_size + 1
 
     # 各セグメントの開始インデックスを計算
     indices = np.arange(0, num_segments * step_size, step_size)
 
-    # ウィンドウをかけた後の分割データを格納する配列を準備, 窓サイズ未満のデータの行+4つ分空の行=5
+    # 窓サイズ未満のデータの行+4つ分空の行=5
     splited_data = np.zeros((num_segments + 5, win_size), dtype=np.int16)
 
     for idx, start in enumerate(indices):
@@ -203,7 +202,7 @@ def audio_split(data, win_size, window_func="hamming", overlap=2):
         # 1を引いてインデックスのずれを合わせる
         segment = data[-remaining - 1:-1]
         if window_func == "hamming":
-            win = np.hamming(len(segment)) * 0.94
+            win = np.hamming(len(segment)) * 0.93
         else:
             win = np.hanning(len(segment))
         win_segment = segment * win
@@ -231,16 +230,12 @@ def change_samplingrate(data, fs, target_fs, amp):
     # 16bit想定
     data = data / 32768
 
-    #サンプリングレート変換
     changed_data = resample_poly(data, target_fs, fs)
 
-    # データを浮動小数点で正規化
     changed_data = changed_data * amp
 
-    # 最大値と最小値に収める
     changed_data = np.clip(changed_data, -32768, 32767)
 
-    # 整数型に変換
     changed_data = changed_data.astype(np.int16)
 
     return changed_data
@@ -248,7 +243,6 @@ def change_samplingrate(data, fs, target_fs, amp):
 
 if __name__ == '__main__':
 
-    # 音声データパス
     while True:
         fTyp = [("Audio File", ".wav"), ("wav", ".wav")]
         input_name = tkinter.filedialog.askopenfilename(filetypes = fTyp)
@@ -271,12 +265,9 @@ if __name__ == '__main__':
                 break
             count += 1
 
-    # 高音部分のウィンドウサイズ
-    window_size = 1024 * 8 
-
     # midi定義
     mid = MidiFile()
-    tracks = [MidiTrack() for _ in range(10)] # 10個のトラックを作成
+    tracks = [MidiTrack() for _ in range(10)]
     mid.tracks.extend(tracks)
 
     tracks[0].append(MetaMessage('set_tempo', tempo=mido.bpm2tempo(480)))
@@ -286,6 +277,9 @@ if __name__ == '__main__':
 
     # Wavの情報取得
     wi = info_wav(input_name)
+    
+    # 高音部分のウィンドウサイズ
+    window_size = 1024 * 8 
 
     print("\n再サンプリング&データ分割開始")
 
