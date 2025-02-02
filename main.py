@@ -53,7 +53,7 @@ def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend
         else:
             max_volume += volume
 
-    sim = 4 # 2~6が良い, -1でノートを繋げる機能無効化
+    sim = 4 # -1でノートを繋げる機能無効化
     bend_values = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410]
     for i, track in enumerate(tracks):
         ch = i if i != 9 else 10
@@ -72,17 +72,17 @@ def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend
                     before_volume + sim < current_volume or
                     current_volume < min_vol):
                     track.append(Message('note_off', note=j, channel=ch))
-                    if current_volume > min_vol:
+                    if min_vol < current_volume:
                         track.append(Message('note_on', note=j, velocity=current_volume, channel=ch))
                     else:
                         current_volume_list[note_idx] = 0
                 else:
                     current_volume_list[note_idx] = before_volume
-            else: # 前の音がなかったとき
-                if current_volume > min_vol:
-                    track.append(Message('note_on', note=j, velocity=current_volume, channel=ch))
-                else:
-                    current_volume_list[note_idx] = 0
+            # 前の音がなかったとき
+            elif min_vol < current_volume:
+                track.append(Message('note_on', note=j, velocity=current_volume, channel=ch))
+            else:
+                current_volume_list[note_idx] = 0
 
         if next_tick:
             track.append(Message('note_off', channel=ch, time=int(60 * sec + 0.5)))
@@ -121,7 +121,7 @@ def audio_split(data, win_size, overlap=2):
 
     # 各セグメントの開始インデックス
     indices = np.arange(0, num_segments * step_size, step_size)
-    segments_data = np.zeros((num_segments, win_size), dtype=np.int16)
+    segments_data = np.zeros((num_segments + 1, win_size), dtype=np.int16)
 
     for idx, start in enumerate(indices):
         end = start + win_size
