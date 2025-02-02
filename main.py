@@ -8,82 +8,81 @@ import wave
 import mido
 from mido import Message, MidiFile, MidiTrack, MetaMessage
 import numpy as np
-from numpy.fft import fft
+from scipy.fft import fft
 from scipy.signal import resample_poly
 from tqdm import tqdm
 
 # midi化関数
-def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_bend, next_tick):
+def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend, next_tick):
     sec = N / fs
     min_vol = 6
     min_vol_2 = min_vol * 2
-    before_midi_note, max_volume = 0, 0
-    current_volume_list = [[0 for _ in range(128)] for _ in range(10)]
-
+    before_midi_note = 0
+    max_volume = 0.0
+    current_volume_list = [0] * 1280
     volumes = (np.abs(F) / N * 4) ** 1.1
 
-    range_start = int(sec * 440 * 1.0594630943593 ** (start_note - 69) * 0.9)
-    range_end = int(sec * 440 * 1.0594630943593 ** (end_note - 69) * 1.1)
+    range_start = int(sec * 440 * 1.059463094359295 ** (start_note - 69) * 0.9)
+    range_end = int(sec * 440 * 1.059463094359295 ** (end_note - 69) * 1.1)
 
     for i in range(range_start, range_end):
 
         volume = volumes[i]
-        if volume < min_vol_2 and i != range_end - 1:
+        if volume < min_vol_2:
             continue
 
         # ノート番号計算
-        midi_note = 69 + log10(i / sec / 440) / 0.025085832971998433
+        midi_note = log10(i / sec) * 39.863137138648348 - 36.376316562295915
         round_1_midi_note = int(midi_note * 10 + 0.5) / 10
 
         if before_midi_note != round_1_midi_note: # 音が変わったら前の音階をmidiに打ち込む
-            midi_note_syosu, midi_note_seisu = modf(before_midi_note) # 整数部分と小数部分の分離
+            midi_note_syosu, midi_note_seisu = modf(before_midi_note)
             track_num = int(midi_note_syosu * 10 + 0.5)
 
             # 音量調整
-            max_volume = sqrt(max_volume) * 0.55
-            max_volume = max_volume if max_volume <= 127 else 127
+            sqrt_volume = sqrt(max_volume) * 0.55
+            round_0_volume = int(sqrt_volume + 0.5)
+            round_0_volume = round_0_volume if round_0_volume <= 127 else 127
 
             round_0_midi_note = int(before_midi_note + 0.5)
-            round_0_volume = int(max_volume + 0.5)
-
             if round_0_midi_note <= 127:
-                current_volume_list[track_num][round_0_midi_note] = round_0_volume
+                current_volume_list[track_num * 128 + round_0_midi_note] = round_0_volume
 
             before_midi_note = round_1_midi_note
             max_volume = volume
-
         else:
             max_volume += volume
 
-    sim = 2 # 2~4が良い, -1でノートを繋げる機能無効化
+    sim = 4 # 2~6が良い, -1でノートを繋げる機能無効化
     bend_values = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410]
     for i, track in enumerate(tracks):
         ch = i if i != 9 else 10
-        if use_bend:
+        if use_pitch_bend:
             track.append(Message('pitchwheel', channel=ch, pitch=bend_values[i]))
-        before_volume_list_i = before_volume_list[i]
-        current_volume_list_i = current_volume_list[i]
+
+        temp_idx = i * 128
         for j in range(start_note, end_note):
-            before_volume_list_i_j = before_volume_list_i[j]
-            current_volume_list_i_j = current_volume_list_i[j]
-            if before_volume_list_i_j != 0:
-                # 音量変化が指定値より大きいor閾値以下のとき
-                if (current_volume_list_i_j < before_volume_list_i_j - sim or 
-                    before_volume_list_i_j + sim < current_volume_list_i_j or 
-                    current_volume_list_i_j < min_vol):
+            note_idx = temp_idx + j
+            before_volume = before_volume_list[note_idx]
+            current_volume = current_volume_list[note_idx]
+
+            if before_volume != 0:
+                # 音量変化が指定値より大きいor閾値未満のとき
+                if (current_volume < before_volume - sim or
+                    before_volume + sim < current_volume or
+                    current_volume < min_vol):
                     track.append(Message('note_off', note=j, channel=ch))
-                    if current_volume_list_i_j > min_vol:
-                        track.append(Message('note_on', note=j, velocity=current_volume_list_i_j, channel=ch))
+                    if current_volume > min_vol:
+                        track.append(Message('note_on', note=j, velocity=current_volume, channel=ch))
                     else:
-                        current_volume_list_i[j] = 0
+                        current_volume_list[note_idx] = 0
                 else:
-                    current_volume_list_i[j] = before_volume_list_i_j
+                    current_volume_list[note_idx] = before_volume
             else: # 前の音がなかったとき
-                if current_volume_list_i_j > min_vol:
-                    track.append(Message('note_on', note=j, velocity=current_volume_list_i_j, channel=ch))
+                if current_volume > min_vol:
+                    track.append(Message('note_on', note=j, velocity=current_volume, channel=ch))
                 else:
-                    current_volume_list_i[j] = 0
-        current_volume_list[i] = current_volume_list_i
+                    current_volume_list[note_idx] = 0
 
         if next_tick:
             track.append(Message('note_off', channel=ch, time=int(60 * sec + 0.5)))
@@ -122,15 +121,15 @@ def audio_split(data, win_size, overlap=2):
 
     # 各セグメントの開始インデックス
     indices = np.arange(0, num_segments * step_size, step_size)
-    splited_data = np.zeros((num_segments, win_size), dtype=np.int16)
+    segments_data = np.zeros((num_segments, win_size), dtype=np.int16)
 
     for idx, start in enumerate(indices):
         end = start + win_size
         segment = data[start:end]
         win_segment = segment * win
-        splited_data[idx, :] = win_segment
+        segments_data[idx, :] = win_segment
 
-    return splited_data
+    return segments_data
 
 
 def return_amp(data):
@@ -140,14 +139,14 @@ def return_amp(data):
     return amp
 
 
-def change_sampling_rate(data, fs, target_fs, amp):
-    data = data / amp
-    changed_data = resample_poly(data, target_fs, fs)
-    changed_data = changed_data * 32767
-    changed_data = np.clip(changed_data, -32768, 32767)
-    changed_data = changed_data.astype(np.int16)
+def resampling(data, fs, target_fs, amp):
+    normalize_data = data / amp
+    sampled_data = resample_poly(normalize_data, target_fs, fs)
+    scaled_data = sampled_data * 32767
+    cliped_data = np.clip(scaled_data, -32768, 32767)
+    result_data = cliped_data.astype(np.int16)
 
-    return changed_data
+    return result_data
 
 
 if __name__ == '__main__':
@@ -198,32 +197,32 @@ if __name__ == '__main__':
     new_fs_low = 640
 
     amp = return_amp(data)
-    samped_data_high = change_sampling_rate(data, fs, new_fs_high, amp)
-    samped_data_middle = change_sampling_rate(data, fs, new_fs_middle, amp)
-    samped_data_low = change_sampling_rate(data, fs, new_fs_low, amp)
+    resampled_data_high = resampling(data, fs, new_fs_high, amp)
+    resampled_data_middle = resampling(data, fs, new_fs_middle, amp)
+    resampled_data_low = resampling(data, fs, new_fs_low, amp)
 
     # データ分割
     window_size_high = 8192
     window_size_middle = 4096
     window_size_low = 512
 
-    splited_data_high = audio_split(samped_data_high, window_size_high)
-    splited_data_middle = audio_split(samped_data_middle, window_size_middle)
-    splited_data_low = audio_split(samped_data_low, window_size_low)
+    segments_data_high = audio_split(resampled_data_high, window_size_high)
+    segments_data_middle = audio_split(resampled_data_middle, window_size_middle)
+    segments_data_low = audio_split(resampled_data_low, window_size_low)
 
-    del data, samped_data_high, samped_data_middle, samped_data_low
+    del data, resampled_data_high, resampled_data_middle, resampled_data_low
     gc.collect()
 
     print("再サンプリング&データ分割完了\n")
 
-    before_volume_list_high = [[0 for _ in range(128)] for _ in range(10)]
-    before_volume_list_middle = [[0 for _ in range(128)] for _ in range(10)]
-    before_volume_list_low = [[0 for _ in range(128)] for _ in range(10)]
+    before_volume_list_high = [0] * 1280
+    before_volume_list_middle = [0] * 1280
+    before_volume_list_low = [0] * 1280
 
     # データの長さ
-    len_splited_data_high = len(splited_data_high)
-    len_splited_data_middle = len(splited_data_middle)
-    len_splited_data_low = len(splited_data_low)
+    len_splited_data_high = len(segments_data_high)
+    len_splited_data_middle = len(segments_data_middle)
+    len_splited_data_low = len(segments_data_low)
 
     # 評価用の長さ
     range_data_middle = len_splited_data_middle * 2
@@ -232,34 +231,35 @@ if __name__ == '__main__':
     # FFT&midi化
     for i in tqdm(range(0, len_splited_data_high), desc='Convert to MIDI'):
         # 低音用
-        if i < range_data_low and i % 4 == 0:
-            ffted_data_low = fft(splited_data_low[i // 4])
+        if i % 4 == 0 and i < range_data_low:
+            ffted_data_low = fft(segments_data_low[i // 4])
             before_volume_list_low = data2midi(
                 F=ffted_data_low, before_volume_list=before_volume_list_low,
                 fs=new_fs_low, N=window_size_low,
                 start_note=36, end_note=60,
-                use_bend=False, next_tick=False
+                use_pitch_bend=False, next_tick=False
             )
 
         # 中音用
-        if i < range_data_middle and i % 2 == 0:
-            ffted_data = fft(splited_data_middle[i // 2])
+        if i % 2 == 0 and i < range_data_middle:
+            ffted_data = fft(segments_data_middle[i // 2])
             before_volume_list_middle = data2midi(
                 F=ffted_data, before_volume_list=before_volume_list_middle,
                 fs=new_fs_middle, N=window_size_middle,
                 start_note=60, end_note=108,
-                use_bend=True, next_tick=False
+                use_pitch_bend=True, next_tick=False
             )
 
         # 高音用
-        ffted_data_high = fft(splited_data_high[i])
+        ffted_data_high = fft(segments_data_high[i])
         before_volume_list_high = data2midi(
             F=ffted_data_high, before_volume_list=before_volume_list_high,
             fs=new_fs_high, N=window_size_high,
             start_note=108, end_note=128,
-            use_bend=False, next_tick=True)
+            use_pitch_bend=False, next_tick=True
+        )
 
-    del splited_data_high, splited_data_middle, splited_data_low
+    del segments_data_high, segments_data_middle, segments_data_low
     gc.collect()
 
     print("\nMIDI保存中...")
