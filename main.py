@@ -18,7 +18,7 @@ def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend
     min_vol = 6
     min_vol_2 = min_vol * 2
     before_midi_note = 0
-    max_volume = 0.0
+    sum_volume = 0.0
     current_volume_list = [0] * 1280
     volumes = (np.abs(F) / N * 4) ** 1.1
 
@@ -40,18 +40,19 @@ def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend
             track_num = int(midi_note_syosu * 10 + 0.5)
 
             # 音量調整
-            sqrt_volume = sqrt(max_volume) * 0.55
+            sqrt_volume = sqrt(sum_volume) * 0.55
             round_0_volume = int(sqrt_volume + 0.5)
-            round_0_volume = round_0_volume if round_0_volume <= 127 else 127
+            if round_0_volume > 127:
+                round_0_volume = 127
 
             round_0_midi_note = int(before_midi_note + 0.5)
             if round_0_midi_note <= 127:
                 current_volume_list[track_num * 128 + round_0_midi_note] = round_0_volume
 
             before_midi_note = round_1_midi_note
-            max_volume = volume
+            sum_volume = volume
         else:
-            max_volume += volume
+            sum_volume += volume
 
     sim = 4 # -1でノートを繋げる機能無効化
     bend_values = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410]
@@ -66,20 +67,22 @@ def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend
             before_volume = before_volume_list[note_idx]
             current_volume = current_volume_list[note_idx]
 
-            if before_volume != 0:
-                # 音量変化が指定値より大きいor閾値未満のとき
-                if (current_volume < before_volume - sim or
-                    before_volume + sim < current_volume or
-                    current_volume < min_vol):
+            is_below_min = current_volume <= min_vol
+
+            if before_volume != 0: # 前回音があったとき
+                is_small = current_volume < before_volume - sim 
+                is_big = before_volume + sim < current_volume
+
+                if is_small or is_big or is_below_min: # 音量変化が指定値より大きいor閾値未満のとき
                     track.append(Message('note_off', note=j, channel=ch))
-                    if min_vol < current_volume:
+                    if not is_below_min:
                         track.append(Message('note_on', note=j, velocity=current_volume, channel=ch))
                     else:
                         current_volume_list[note_idx] = 0
                 else:
                     current_volume_list[note_idx] = before_volume
-            # 前の音がなかったとき
-            elif min_vol < current_volume:
+
+            elif not is_below_min: # 閾値以上のとき
                 track.append(Message('note_on', note=j, velocity=current_volume, channel=ch))
             else:
                 current_volume_list[note_idx] = 0
@@ -119,7 +122,6 @@ def audio_split(data, win_size, overlap=2):
     step_size = win_size // overlap
     num_segments = (len_data - win_size) // step_size + 1
 
-    # 各セグメントの開始インデックス
     indices = np.arange(0, num_segments * step_size, step_size)
     segments_data = np.zeros((num_segments + 1, win_size), dtype=np.int16)
 
@@ -132,17 +134,10 @@ def audio_split(data, win_size, overlap=2):
     return segments_data
 
 
-def return_amp(data):
-    data_max_val = max(np.max(data), -(np.min(data) + 1))
-    amp = data_max_val * 1.1
-
-    return amp
-
-
 def resampling(data, fs, target_fs, amp):
     normalize_data = data / amp
-    sampled_data = resample_poly(normalize_data, target_fs, fs)
-    scaled_data = sampled_data * 32767
+    resampled_data = resample_poly(normalize_data, target_fs, fs)
+    scaled_data = resampled_data * 32767
     cliped_data = np.clip(scaled_data, -32768, 32767)
     result_data = cliped_data.astype(np.int16)
 
@@ -151,6 +146,7 @@ def resampling(data, fs, target_fs, amp):
 
 if __name__ == '__main__':
 
+    # ファイル選択
     while True:
         fTyp = [("Audio File", ".wav"), ("wav", ".wav")]
         input_name = tkinter.filedialog.askopenfilename(filetypes = fTyp)
@@ -196,7 +192,7 @@ if __name__ == '__main__':
     new_fs_middle = 10240
     new_fs_low = 640
 
-    amp = return_amp(data)
+    amp = max(np.max(data), -(np.min(data) + 1)) * 1.1
     resampled_data_high = resampling(data, fs, new_fs_high, amp)
     resampled_data_middle = resampling(data, fs, new_fs_middle, amp)
     resampled_data_low = resampling(data, fs, new_fs_low, amp)
