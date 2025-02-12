@@ -20,7 +20,7 @@ def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend
     before_midi_note = 0
     sum_volume = 0.0
     current_volume_list = [0] * 1280
-    volumes = (np.abs(F) / N * 4) ** 1.1
+    volumes = (np.abs(F) / N * 2) ** 1.1
 
     range_start = int(sec * 440 * 1.059463094359295 ** (start_note - 69) * 0.9)
     range_end = int(sec * 440 * 1.059463094359295 ** (end_note - 69) * 1.1)
@@ -40,7 +40,7 @@ def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend
             track_num = int(midi_note_syosu * 10 + 0.5)
 
             # 音量調整
-            sqrt_volume = sqrt(sum_volume) * 0.55
+            sqrt_volume = sqrt(sum_volume) * 0.8
             round_0_volume = int(sqrt_volume + 0.5)
             if round_0_volume > 127:
                 round_0_volume = 127
@@ -95,7 +95,7 @@ def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend
 
 # Wave読み込み
 def read_wav(file_path):
-    wf = wave.open(file_path, "rb")
+    wf = wave.open(str(file_path), "rb")
     buf = wf.readframes(-1) # 全部読み込む
 
     # 16bitのときのみ
@@ -172,6 +172,9 @@ if __name__ == '__main__':
         else:
             sys.exit("ファイル名が重複しすぎているため作成できません")
 
+    print("\ninput:", input_path_obj.name)
+    print("output:", output_path_obj.name)
+    
     # midi定義
     mid = MidiFile()
     tracks = [MidiTrack() for _ in range(10)]
@@ -183,7 +186,7 @@ if __name__ == '__main__':
     ))
 
     # Wav読み込み
-    data, fs = read_wav(input_name)
+    data, fs = read_wav(input_path_obj)
 
     print("\n再サンプリング&データ分割開始")
 
@@ -238,9 +241,9 @@ if __name__ == '__main__':
 
         # 中音用
         if i % 2 == 0 and i < range_data_middle:
-            ffted_data = fft(segments_data_middle[i // 2])
+            ffted_data_middle = fft(segments_data_middle[i // 2])
             before_volume_list_middle = data2midi(
-                F=ffted_data, before_volume_list=before_volume_list_middle,
+                F=ffted_data_middle, before_volume_list=before_volume_list_middle,
                 fs=new_fs_middle, N=window_size_middle,
                 start_note=60, end_note=108,
                 use_pitch_bend=True, next_tick=False
