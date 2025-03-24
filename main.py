@@ -49,8 +49,8 @@ def fft2midi(F, before_volume_list, fs, N, start_note, end_note, append_pitch_be
     sec = N / fs
     before_midi_note = 0.0
     sum_volume = 0.0
-    # 1.1乗ぐらいがいい音に聞こえる。1~1.2で調整可
-    volumes = (np.abs(F) / N * 2) ** 1.1
+    # 1.1乗ぐらいがいい音に聞こえる。1~1.2ぐらいで調整可
+    volumes = (np.abs(F) / N * 2) ** 1.05
 
     range_start = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (start_note - 69) * 0.9)
     range_end = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (end_note - 69) * 1.1)
