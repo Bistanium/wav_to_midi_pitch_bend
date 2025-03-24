@@ -1,157 +1,138 @@
-import gc
+from dataclasses import dataclass
 from math import log10, modf, sqrt
 from pathlib import Path
 import sys
-import tkinter, tkinter.filedialog
+import tkinter
+import tkinter.filedialog
 import wave
 
 import mido
 from mido import Message, MidiFile, MidiTrack, MetaMessage
 import numpy as np
-from scipy.fft import fft
-from scipy.signal import resample_poly
+import scipy
 from tqdm import tqdm
 
+
+# 設定ゾーン  不正な入力のチェックをしていないので変更には気をつける
+class Settings:
+    # ピッチベンドを無効にするか
+    disable_pitch_bend = False
+    # -1でノートを繋げる機能無効化  近い音量のノートを同じ音量のノートして扱う
+    similar_velocity_threshold = 4
+    # 3以上推奨
+    minimum_velocity = 6
+    # 波形切り出しに使う窓関数
+    window_function = scipy.signal.windows.kaiser
+    # 4~8が良い。β=πα
+    window_beta = 4.5
+    # %を表記しない
+    overlap_rate = 50
+
+
+@dataclass(slots=True)
+class NoteMessage:
+    type: str
+    note: int
+    velocity: float
+    channel: int
+
+
 # midi化関数
-def data2midi(F, before_volume_list, fs, N, start_note, end_note, use_pitch_bend, next_tick):
-    sec = N / fs
-    min_vol = 6
-    min_vol_2 = min_vol * 2
-    before_midi_note = 0
-    sum_volume = 0.0
+def fft2midi(F, before_volume_list, fs, N, start_note, end_note, append_pitch_bend, next_time):
+
+    TWELFTH_ROOT_OF_2 = 1.059463094359295264561825294946
+    TWELVE_OVER_LOG10_2 = 39.86313713864834817444383315387
+    LOG10_440_TIMES_TOL_MINUS_69 = 36.37631656229591524883618971458
+
     current_volume_list = [0] * 1280
+    tracks = [[None] for _ in range(10)]
+    sec = N / fs
+    before_midi_note = 0.0
+    sum_volume = 0.0
+    # 1.1乗ぐらいがいい音に聞こえる。1~1.2で調整可
     volumes = (np.abs(F) / N * 2) ** 1.1
 
-    range_start = int(sec * 440 * 1.059463094359295 ** (start_note - 69) * 0.9)
-    range_end = int(sec * 440 * 1.059463094359295 ** (end_note - 69) * 1.1)
+    range_start = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (start_note - 69) * 0.9)
+    range_end = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (end_note - 69) * 1.1)
+
+    disable_pitch_bend = Settings.disable_pitch_bend
+    # note_digitは使うトラックの数ともいえる
+    note_digit = 10
+    if disable_pitch_bend:
+        note_digit = 1
 
     for i in range(range_start, range_end):
 
         volume = volumes[i]
-        if volume < min_vol_2:
+        if volume < 3:
             continue
 
-        # ノート番号計算
-        midi_note = log10(i / sec) * 39.863137138648348 - 36.376316562295915
-        round_1_midi_note = int(midi_note * 10 + 0.5) / 10
+        # ノート番号計算, i/secは周波数
+        midi_note = log10(i / sec) * TWELVE_OVER_LOG10_2 - LOG10_440_TIMES_TOL_MINUS_69
+        round_1_midi_note = int(midi_note * note_digit + 0.5) / note_digit
 
-        if before_midi_note != round_1_midi_note: # 音が変わったら前の音階をmidiに打ち込む
-            midi_note_syosu, midi_note_seisu = modf(before_midi_note)
-            track_num = int(midi_note_syosu * 10 + 0.5)
-
-            # 音量調整
-            sqrt_volume = sqrt(sum_volume) * 0.8
-            round_0_volume = int(sqrt_volume + 0.5)
-            if round_0_volume > 127:
-                round_0_volume = 127
+        # 音が変わったら前の音階をmidiに打ち込む
+        if before_midi_note != round_1_midi_note:
+            midi_note_decimal, midi_note_int = modf(before_midi_note)
+            track_num = int(midi_note_decimal * 10 + 0.5)
 
             round_0_midi_note = int(before_midi_note + 0.5)
             if round_0_midi_note <= 127:
-                current_volume_list[track_num * 128 + round_0_midi_note] = round_0_volume
+                # なぜ平方根が必要かはわからない
+                current_volume_list[track_num * 128 + round_0_midi_note] = sqrt(sum_volume)
 
             before_midi_note = round_1_midi_note
             sum_volume = volume
         else:
             sum_volume += volume
 
-    sim = 4 # -1でノートを繋げる機能無効化
-    bend_values = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410]
-    for i, track in enumerate(tracks):
-        ch = i if i != 9 else 10
-        if use_pitch_bend:
-            track.append(Message('pitchwheel', channel=ch, pitch=bend_values[i]))
 
+    similar_velocity_threshold = Settings.similar_velocity_threshold
+    for i, track in enumerate(tracks):
+        # 0から数えて9つ目は打楽器
+        ch = i if i != 9 else 10
         temp_idx = i * 128
+        track_append = track.append
+        if append_pitch_bend:
+            track_append(NoteMessage(type="pitchwheel", note=-1, velocity=-1, channel=ch))
         for j in range(start_note, end_note):
             note_idx = temp_idx + j
             before_volume = before_volume_list[note_idx]
             current_volume = current_volume_list[note_idx]
 
-            is_below_min = current_volume <= min_vol
-
-            if before_volume != 0: # 前回音があったとき
-                is_small = current_volume < before_volume - sim 
-                is_big = before_volume + sim < current_volume
-
-                if is_small or is_big or is_below_min: # 音量変化が指定値より大きいor閾値未満のとき
-                    track.append(Message('note_off', note=j, channel=ch))
+            is_below_min = current_volume <= 2
+            # 前回音があったとき
+            if before_volume != 0:
+                is_small = current_volume < before_volume - similar_velocity_threshold 
+                is_big = before_volume + similar_velocity_threshold < current_volume
+                # 音量変化が指定した値より大きいとき
+                if is_small or is_big or is_below_min:
+                    track_append(NoteMessage(type="note_off", note=j, velocity=-1, channel=ch))
                     if not is_below_min:
-                        track.append(Message('note_on', note=j, velocity=current_volume, channel=ch))
+                        track_append(NoteMessage(type="note_on", note=j, velocity=current_volume, channel=ch))
                     else:
                         current_volume_list[note_idx] = 0
                 else:
                     current_volume_list[note_idx] = before_volume
-
-            elif not is_below_min: # 閾値以上のとき
-                track.append(Message('note_on', note=j, velocity=current_volume, channel=ch))
+            # 閾値超過のとき
+            elif not is_below_min:
+                track_append(NoteMessage(type="note_on", note=j, velocity=current_volume, channel=ch))
             else:
                 current_volume_list[note_idx] = 0
 
-        if next_tick:
-            track.append(Message('note_off', channel=ch, time=int(60 * sec + 0.5)))
+        if next_time:
+            track_append(NoteMessage(type="next_time", note=-1, velocity=-1, channel=ch))
 
-    return current_volume_list
-
-
-# Wave読み込み
-def read_wav(file_path):
-    wf = wave.open(str(file_path), "rb")
-    buf = wf.readframes(-1) # 全部読み込む
-
-    # 16bitのときのみ
-    if wf.getsampwidth() == 2:
-        data = np.frombuffer(buf, dtype=np.int16)
-        fs = wf.getframerate()
-    else:
-        sys.exit("ビット深度が16bit以外です")
-
-    if wf.getnchannels() == 2:
-        mono_data = (data[::2] + data[1::2]) / 2
-    else:
-        mono_data = data
-    wf.close()
-
-    return mono_data, fs
+    return current_volume_list, tracks
 
 
-# データ分割
-def audio_split(data, win_size, overlap=2):
-    len_data = len(data)
-    win = np.hanning(win_size)
-
-    step_size = win_size // overlap
-    num_segments = (len_data - win_size) // step_size + 1
-
-    indices = np.arange(0, num_segments * step_size, step_size)
-    segments_data = np.zeros((num_segments + 1, win_size), dtype=np.int16)
-
-    for idx, start in enumerate(indices):
-        end = start + win_size
-        segment = data[start:end]
-        win_segment = segment * win
-        segments_data[idx, :] = win_segment
-
-    return segments_data
-
-
-def resampling(data, fs, target_fs, amp):
-    normalize_data = data / amp
-    resampled_data = resample_poly(normalize_data, target_fs, fs)
-    scaled_data = resampled_data * 32767
-    cliped_data = np.clip(scaled_data, -32768, 32767)
-    result_data = cliped_data.astype(np.int16)
-
-    return result_data
-
-
-if __name__ == '__main__':
-
+def choose_wav_file():
     # ファイル選択
     while True:
         fTyp = [("Audio File", ".wav"), ("wav", ".wav")]
         input_name = tkinter.filedialog.askopenfilename(filetypes = fTyp)
         input_path_obj = Path(input_name)
-        
+
         if input_name:
             extension = input_path_obj.suffix
             if extension == ".wav":
@@ -172,95 +153,325 @@ if __name__ == '__main__':
         else:
             sys.exit("ファイル名が重複しすぎているため作成できません")
 
-    print("\ninput:", input_path_obj.name)
-    print("output:", output_path_obj.name)
-    
+    return input_path_obj, output_path_obj
+
+
+# Wave読み込み
+def read_wav(file_path):
+    with wave.open(str(file_path)) as wf:
+        # 全部読み込む
+        buf = wf.readframes(-1) 
+
+        # 16bitのときのみ
+        if wf.getsampwidth() == 2:
+            data = np.frombuffer(buf, dtype=np.int16)
+            fs = wf.getframerate()
+        else:
+            sys.exit("ビット深度が16bit以外です")
+
+        if wf.getnchannels() == 2:
+            mono_data = (data[::2] + data[1::2]) / 2
+        else:
+            mono_data = data
+
+    return mono_data, fs
+
+
+def definition_midi():
     # midi定義
     mid = MidiFile()
     tracks = [MidiTrack() for _ in range(10)]
     mid.tracks.extend(tracks)
-    tracks[0].append(MetaMessage('set_tempo', tempo=mido.bpm2tempo(240)))
+    tracks[0].append(MetaMessage("set_tempo", tempo=mido.bpm2tempo(240)))
     tracks[0].append(MetaMessage(
-        'time_signature', numerator=4, denominator=4,
+        "time_signature", numerator=4, denominator=4,
         clocks_per_click=24, notated_32nd_notes_per_beat=8
     ))
+    # 音色変更用
+    #for i, track in enumerate(tracks):
+    #    ch = i if i != 9 else 10
+    #    # バンク  value=にMSB,LSBの順で
+    #    track.append(Message("control_change", channel=ch, control=0, value=0))
+    #    track.append(Message("control_change", channel=ch, control=32, value=0))
+    #    # program=に0から数えた音色の番号
+    #    track.append(Message("program_change", channel=ch, program=0))
+
+    return mid, tracks
+
+
+# リサンプリング
+def resampling(data, fs, target_fs, amp):
+    # メモリをやたら使うからfloat32で統一
+    data = (data / amp).astype(np.float32)
+
+    # リサンプリング
+    data = scipy.signal.resample_poly(data, target_fs, fs).astype(np.float32)
+
+    # 最終的にnp.int16にする
+    data *= 32767
+    # in-place
+    np.round(data, out=data)
+    np.clip(data, -32768, 32767, out=data)
+
+    return data.astype(np.int16)
+
+
+def resampling_3(data, fs, new_fs_list):
+    resampled_data_list = []
+    amp = max(max(data), -(min(data) + 1)) * 1.05
+    for i in range(3):
+        resampled_data_list.append(resampling(data, fs, new_fs_list[i], amp))
+
+    return resampled_data_list
+
+
+# オーディオ分割
+def audio_split(data, win_size):
+    len_data = len(data)
+    # symはFalseの方がスペクトラム解析に良いらしい
+    win = Settings.window_function(win_size, Settings.window_beta, sym=False)
+    # 50%→2、75%→4に変換
+    overlap = int(100 / (100 - Settings.overlap_rate) + 0.5)
+
+    step_size = win_size // overlap
+    num_segments = (len_data - win_size) // step_size + 1
+
+    indices = np.arange(0, num_segments * step_size, step_size)
+    segments_data = np.zeros((num_segments, win_size), dtype=np.int16)
+
+    for idx, start in enumerate(indices):
+        end = start + win_size
+        segment = data[start:end]
+        win_segment = segment * win
+        segments_data[idx, :] = np.round(win_segment)
+
+    return segments_data
+
+
+def audio_split_3(resampled_datas, window_size_low_list):
+    segment_data_list = []
+    for i in range(3):
+        segment_data_list.append(audio_split(resampled_datas[i], window_size_low_list[i]))
+
+    return segment_data_list
+
+
+def normalize_velocity(tracks):
+    # None削除
+    filtered_tracks = [[note_event for note_event in track if note_event is not None] for track in tracks]
+
+    # すべてのトラックvelocityの最大値を求める
+    velocities = np.array([
+        note_event.velocity
+        for track in filtered_tracks
+        for note_event in track
+    ])
+    max_velocity = velocities.max(initial=1)
+
+    # 正規化係数を計算
+    normalize = 127 / max_velocity
+
+    # 閾値以下のノート番号を記録するリスト
+    removed_notes = set()
+    # これ以下のvelocityは無視される
+    min_velocity = Settings.minimum_velocity
+    # velocityを正規化し、閾値以下の音量のnoteイベントの削除処理
+    for track in filtered_tracks:
+        new_track = []
+        for note_event in track:
+            if note_event.type == "note_on":
+                new_velocity = int(note_event.velocity * normalize + 0.5)
+                if 0 <= new_velocity <= min_velocity:
+                    removed_notes.add((note_event.note, note_event.channel))
+                    continue
+                note_event.velocity = new_velocity  # velocityを更新
+            elif note_event.type == "note_off":
+                note = note_event.note
+                channnel = note_event.channel
+                if (note, channnel) in removed_notes:
+                    removed_notes.remove((note, channnel))
+                    continue
+            new_track.append(note_event)
+        track[:] = new_track  # 元のトラック更新
+
+    return filtered_tracks
+
+
+def create_all_note_messages(N, fs):
+    """
+    1. ノート番号が0から、velocityが0から127まで、ノート番号分作り、それをさらにチャンネル分(9を除く)作る
+    2. ノート番号が0から127まで、チャンネル分(9を除く)作る
+    3. note_offイベントのtimeをチャンネル分(9を除く)作る
+    4. ピッチベンドをチャンネル分(9を除く)作る
+    """
+    # 1.(163,840) + 2.(1,280) + 3.(10) + 4.(10) = 165,140
+    all_note_messages_list = np.zeros(165140, dtype=object)
+
+    # 1
+    start_idx = 0
+    for i in range(10): # channel
+        ch = i if i != 9 else 10
+        for j in range(128): # note number
+            for k in range(128): # velocity
+                all_note_messages_list[16384 * i + 128 * j + k] = (
+                    Message("note_on", note=j, velocity=k, channel=ch)
+                )
+    start_idx += 163840
+
+    # 2
+    for i in range(10): # channel
+        ch = i if i != 9 else 10
+        for j in range(128): # note number
+            all_note_messages_list[128 * i + j + start_idx] = (
+                Message("note_off", note=j, channel=ch)
+            )
+    start_idx += 1280
+
+    # 3
+    sec = N / fs
+    overlap = int(100 / (100 - Settings.overlap_rate) + 0.5)
+    t = int(60 * sec * overlap + 0.5)
+    for i in range(10): # channel
+        ch = i if i != 9 else 10
+        all_note_messages_list[i + start_idx] = (
+            Message("note_off", channel=ch, time=t)
+        )
+    start_idx += 10
+
+    # 4
+    for i in range(10): # channel
+        ch = i if i != 9 else 10
+        bend_values = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410]
+        all_note_messages_list[i + start_idx] = (
+            Message("pitchwheel", channel=ch, pitch=bend_values[i])
+        )
+    start_idx += 10
+
+    return all_note_messages_list
+
+
+def append_tracks(tracks, temp_track, all_note_messages_list):
+    for track in temp_track:
+        for note_event in track:
+            track_num = min(note_event.channel, 9)
+            if note_event.type == "note_on":
+                tracks[track_num].append(
+                    all_note_messages_list[16384 * track_num + 128 * note_event.note + note_event.velocity]
+                )
+            elif note_event.type == "note_off":
+                tracks[track_num].append(
+                    all_note_messages_list[128 * track_num + note_event.note + 163840]
+                )
+            elif note_event.type == "next_time":
+                tracks[track_num].append(
+                    all_note_messages_list[track_num + 165120]
+                )
+            elif note_event.type == "pitchwheel":
+                tracks[track_num].append(
+                    all_note_messages_list[track_num + 165130]
+                )
+
+
+def main():
+
+    # Wavファイル選択
+    input_path_obj, output_path_obj = choose_wav_file()
+
+    print("\ninput:", input_path_obj.name)
+    print("output:", output_path_obj.name)
 
     # Wav読み込み
     data, fs = read_wav(input_path_obj)
 
-    print("\n再サンプリング&データ分割開始")
+    print("\n再サンプリング&データ分割中…… (1/5)\n")
 
-    # 再サンプリング
+    # リサンプリング
     new_fs_high = 40960
     new_fs_middle = 10240
     new_fs_low = 640
+    new_fs_list = (new_fs_high, new_fs_middle, new_fs_low)
+    resampled_data_list = resampling_3(data, fs, new_fs_list)
 
-    amp = max(np.max(data), -(np.min(data) + 1)) * 1.1
-    resampled_data_high = resampling(data, fs, new_fs_high, amp)
-    resampled_data_middle = resampling(data, fs, new_fs_middle, amp)
-    resampled_data_low = resampling(data, fs, new_fs_low, amp)
+    # オーディオ分割
+    window_size_high = 4096
+    window_size_middle = 2048  # 時間分解能がhighの1/2
+    window_size_low = 256      # 時間分解能がhighの1/4
+    window_size_low_list = (window_size_high, window_size_middle, window_size_low)
+    segment_data_list = audio_split_3(resampled_data_list, window_size_low_list)
+    segments_data_high, segments_data_middle, segments_data_low = segment_data_list
 
-    # データ分割
-    window_size_high = 8192
-    window_size_middle = 4096
-    window_size_low = 512
+    del data, resampled_data_list, segment_data_list
 
-    segments_data_high = audio_split(resampled_data_high, window_size_high)
-    segments_data_middle = audio_split(resampled_data_middle, window_size_middle)
-    segments_data_low = audio_split(resampled_data_low, window_size_low)
-
-    del data, resampled_data_high, resampled_data_middle, resampled_data_low
-    gc.collect()
-
-    print("再サンプリング&データ分割完了\n")
-
+    # ここから変換の準備
     before_volume_list_high = [0] * 1280
     before_volume_list_middle = [0] * 1280
     before_volume_list_low = [0] * 1280
 
     # データの長さ
     len_splited_data_high = len(segments_data_high)
-    len_splited_data_middle = len(segments_data_middle)
-    len_splited_data_low = len(segments_data_low)
 
     # 評価用の長さ
-    range_data_middle = len_splited_data_middle * 2
-    range_data_low = len_splited_data_low * 4
+    range_data_middle = len(segments_data_middle) * 2
+    range_data_low = len(segments_data_low) * 4
 
-    # FFT&midi化
-    for i in tqdm(range(0, len_splited_data_high), desc='Convert to MIDI'):
+    # FFT&midiデータ化
+    fft = scipy.fft.fft
+    temp_track = []
+    for i in tqdm(range(0, len_splited_data_high), desc="Convert to MIDI (2/5)"):
         # 低音用
         if i % 4 == 0 and i < range_data_low:
             ffted_data_low = fft(segments_data_low[i // 4])
-            before_volume_list_low = data2midi(
+            before_volume_list_low, part_of_tracks = fft2midi(
                 F=ffted_data_low, before_volume_list=before_volume_list_low,
                 fs=new_fs_low, N=window_size_low,
                 start_note=36, end_note=60,
-                use_pitch_bend=False, next_tick=False
+                append_pitch_bend=False, next_time=False
             )
+            temp_track.extend(part_of_tracks)
 
         # 中音用
         if i % 2 == 0 and i < range_data_middle:
             ffted_data_middle = fft(segments_data_middle[i // 2])
-            before_volume_list_middle = data2midi(
+            before_volume_list_middle, part_of_tracks = fft2midi(
                 F=ffted_data_middle, before_volume_list=before_volume_list_middle,
                 fs=new_fs_middle, N=window_size_middle,
                 start_note=60, end_note=108,
-                use_pitch_bend=True, next_tick=False
+                append_pitch_bend=True, next_time=False
             )
+            temp_track.extend(part_of_tracks)
 
         # 高音用
         ffted_data_high = fft(segments_data_high[i])
-        before_volume_list_high = data2midi(
+        before_volume_list_high, part_of_tracks = fft2midi(
             F=ffted_data_high, before_volume_list=before_volume_list_high,
             fs=new_fs_high, N=window_size_high,
             start_note=108, end_note=128,
-            use_pitch_bend=False, next_tick=True
+            append_pitch_bend=False, next_time=True
         )
+        temp_track.extend(part_of_tracks)
 
     del segments_data_high, segments_data_middle, segments_data_low
-    gc.collect()
 
-    print("\nMIDI保存中...")
+    # midi定義
+    mid, tracks = definition_midi()
+
+    print("\n正規化処理中…… (3/5)")
+
+    # 最大velocityを127に合わせる
+    normalized_tracks = normalize_velocity(temp_track)
+
+    print("\nMIDIメッセージ生成中…… (4/5)")
+
+    all_note_messages_list = create_all_note_messages(window_size_high, new_fs_high)
+
+    append_tracks(tracks, normalized_tracks, all_note_messages_list)
+
+    del temp_track, normalized_tracks, all_note_messages_list
+
+    print("\nMIDI保存中…… (5/5)")
 
     mid.save(output_path_obj)
+
+
+if __name__ == "__main__":
+    main()
