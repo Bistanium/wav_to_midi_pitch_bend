@@ -27,13 +27,13 @@ class Settings:
     overlap_rate = 50
 
 
-class About_tracks:
-    if Settings.disable_pitch_bend:
-        note_digit = 1
-        number_of_tracks = 1
-    else:
-        note_digit = 10
-        number_of_tracks = 10
+class AboutTracks:
+    note_digit = 10
+    number_of_tracks = 10
+    @classmethod
+    def update_settings(cls):
+        cls.note_digit = 1
+        cls.number_of_tracks = 1
 
 
 @dataclass(slots=True)
@@ -52,7 +52,7 @@ def fft2midi(F, before_volume_list, fs, N, start_note, end_note, append_pitch_be
     LOG10_440_TIMES_TOL_MINUS_69 = 36.37631656229591524883618971458
 
     current_volume_list = [0] * 1280
-    number_of_tracks = About_tracks.number_of_tracks
+    number_of_tracks = AboutTracks.number_of_tracks
     tracks = [[] for _ in range(number_of_tracks)]
     sec = N / fs
     before_note = 0.0
@@ -64,7 +64,7 @@ def fft2midi(F, before_volume_list, fs, N, start_note, end_note, append_pitch_be
     range_end = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (end_note - 69 + 1))
 
     # note_digitは使うトラックの数ともいえる
-    note_digit = About_tracks.note_digit
+    note_digit = AboutTracks.note_digit
 
     for i in range(range_start, range_end):
 
@@ -186,7 +186,7 @@ def read_wav(file_path):
 
 def definition_midi():
     # midi定義
-    number_of_tracks = About_tracks.number_of_tracks
+    number_of_tracks = AboutTracks.number_of_tracks
     mid = MidiFile()
     tracks = [MidiTrack() for _ in range(number_of_tracks)]
     mid.tracks.extend(tracks)
@@ -381,6 +381,9 @@ def append_tracks(tracks, temp_track, all_note_messages_list):
 
 
 def main():
+    # ビッチベンドを使うかによって設定を変更
+    if Settings.disable_pitch_bend:
+        AboutTracks.update_settings()
 
     # Wavファイル選択
     input_path_obj, output_path_obj = choose_wav_file()
