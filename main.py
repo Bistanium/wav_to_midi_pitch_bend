@@ -4,7 +4,6 @@ from pathlib import Path
 import sys
 import tkinter
 import tkinter.filedialog
-import wave
 
 import mido
 import numpy as np
