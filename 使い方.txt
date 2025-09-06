@@ -28,31 +28,33 @@ I am not good at English, so please translate the content from the title if nece
 ■アンインストール, How to uninstall
 　・このファイルのあるフォルダごとゴミ箱に捨てる。
 　・必要に応じてインストールしたライブラリをアンインストール(依存関係はアンインストールされないことに注意)
-  -> pip uninstall numpy scipy mido tqdm
+  -> pip uninstall numpy scipy mido tqdm resampy soundfile
 
 
 ■前提ソフト, Required Software
-  ・Audacity   3.4.2  - 3.7.3
+  ・Audacity   3.4.2  - 3.7.5
   ・Python     3.10.6 - 3.12.6
   ・OmniMIDI   14.8.5 (正弦波が合成できれば何でも)
   ・MIDI再生ソフト (私が使っているのはTom's MIDI Player)
 
 
 ■前提ライブラリ, Required Library
-  numpy, scipy, mido, tqdm をコマンドプロンプトなどを使ってインストールする。
-  -> pip install numpy scipy mido tqdm
+  numpy, scipy, mido, tqdm, resampy, soundfile をコマンドプロンプトなどを使ってインストールする。
+  -> pip install numpy scipy mido tqdm resampy soundfile
 
-  ・numpy   1.26.4 - 2.1.3
-  ・scipy   1.12.0 - 1.15.2
-  ・mido    1.3.2
-  ・tqdm    4.66.5 - 4.67.1
+  ・numpy	1.26.4 - 2.2.6
+  ・scipy	1.12.0 - 1.16.1
+  ・mido		1.3.2 - 1.3.3
+  ・tqdm		4.66.5 - 4.67.1
+  ・resampy	0.4.3
+  ・soundfile	0.13.1
 
 
 ■変換方法, How to convert
 　以下の手順を実行してください。
   1. Audacityを起動し、MIDIにしたい音声ファイルをドラッグアンドドロップしたあと、音声トラックの左下辺りの何もないところをクリックして音声トラックが選択された状態にする。
   2. 上のタブから 「トラック>ミックス>ステレオをモノラルにミックスダウン」 の順に操作(元からモノラルの場合はこの手順は無視する)
-  3. 「エフェクト>ピッチとテンポ>テンポを変更」 から、下の "高品質なストレッチを使用" にチェックを入れて、変更率を "-87.500" にする。
+  3. 「エフェクト>ピッチとテンポ>テンポを変更」 から、下の "高品質なストレッチを使用" にチェックを入れて、変更率を "-50.000" にする。
   4. 「エフェクト>音量と圧縮>増幅」 をクリックし、そのまま適用をクリックする。
 　5. 「ファイル>オーディオをエクスポート」 をクリックし、形式は "WAV (Microsoft)" 、サンプリング周波数は元のまま、エンコーディングは "Signed 16-bit PCM" にして、コンピュータに問題が発生しない場所に好きな名前で書き出す
 　6．このテキストファイルがあるフォルダに "start.bat" という名前のバッチファイルがあるので起動し、新しく出てきたウィンドウから先ほど書き出したファイルを見つけてダブルクリックする。
@@ -63,11 +65,10 @@ I am not good at English, so please translate the content from the title if nece
 
 ■重要なポイント, Important point
   ・3番はサンプリング周波数が高いと時間がかかるときがあるため、44100Hzや48000Hzなどの一般的なサンプリング周波数に落としてから行っても問題ない。
-  ・3番の変更率の-87.500とは1/8倍のことであり、この操作はフーリエ変換の周波数分解能を高めるために行う。
-  ・5番のときに、エンコーディングを16bit以外にすると変換できないため気をつける。
+  ・3番の変更率の-50.000とは1/2倍のことであり、この操作はフーリエ変換の周波数分解能を高めるために行う。(実際は高品質な補間にすぎないが)
   ・7番のときに、RAMがシステムの限界に近づきすぎるとパソコンがおかしくなる可能性があるため、残り2~4GBぐらいになってしまったら強制終了させた方が良い。
 
-　・1/8倍速された音声データを対象としているため、上記の2番の手順を行わないとMIDIの再生速度が8倍になる。
+　・1/2倍速された音声データを対象としているため、上記の2番の手順を行わないとMIDIの再生速度が2倍になる。
   ・4番操作後、変換されてほしい部分の音量の最小の部分のRMSが-30dB以上であることが好ましい。
 　・MIDIの再生にはOmniMIDIなどを利用して、正弦波でMIDIデータを合成して聴く。
 
@@ -78,28 +79,19 @@ I am not good at English, so please translate the content from the title if nece
   ※インターネット上にはピッチベンドを使わないで演奏されているものがあります。それらと同じようにしたい場合は上記のように設定を変更してください。
 
 
-■音質を上げたい場合, When sound quality is a priority
-　1. プログラムの23行目の「minimum_velocity = 6」を「minimum_velocity = 4」に置き換える。
-  2. プログラムの21行目の「similar_velocity_threshold = 4」を「similar_velocity_threshold = 2」に置き換える。
-
-  ※お好みで値は調整してください。ただし、小さすぎると逆に音が悪くなります。
-  ※これら操作により再生時の計算量が大幅に増加し、再生不良や音飛びが発生することがあります。
-
-
 ■軽量化したい場合, When performance is a priority
-　1. プログラムの23行目の「minimum_velocity = 6」を「minimum_velocity = 12」に置き換える。
+　1. プログラムの23行目の「minimum_velocity = 4」を「minimum_velocity = 8」に置き換える。
   2. プログラムの21行目の「similar_velocity_threshold = 4」を「similar_velocity_threshold = 8」に置き換える。
 
   ※お好みで値は調整してください。
-  ※これら操作により音量が小さくなったり音質が低下します。
+  ※これら操作により音質が低下します。
 
 
 ■最後に, Finally
   ・本プログラムは完全無料です。
-　・ここに載っている環境やバージョンについては私が確認したものだけしか載せていません。
 　・このテキストファイルの内容について変更を加えることがあります。
   ・強制はしませんが動画等で使う場合はツール元を書いてくれると嬉しいです。
 
 
 編集:Bistanium
-最終編集日:2025/03/31
+最終編集日:2025/09/06
