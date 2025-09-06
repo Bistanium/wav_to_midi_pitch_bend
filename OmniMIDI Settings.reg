@@ -37,12 +37,12 @@ Windows Registry Editor Version 5.00
 "NoteLengthValue"=dword:00000005
 "NoteOff1"=dword:00000000
 "NotesCatcherWithAudio"=dword:00000000
-"OutputVolume"=dword:00000ff2
+"OutputVolume"=dword:00000f81
 "PreloadSoundFonts"=dword:00000001
 "ReverbOverride"=dword:00000000
 "ChorusOverride"=dword:00000000
 "Reverb"=dword:00000000
-"SincConv"=dword:00000004
+"SincConv"=dword:00000002
 "SincInter"=dword:00000001
 "StockWinMM"=dword:00000000
 "AudioRampIn"=dword:00000000
