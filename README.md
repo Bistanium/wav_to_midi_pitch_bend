@@ -8,3 +8,6 @@
 
 使い方.txtをよく読んでから使ってください
 (Please read the 使い方.txt carefully before use)
+
+いつかここに使い方を書くようにします。気が向いたら。
+I'll write instructions here someday. When I feel like it.
