@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from math import log10, modf, sqrt
+from math import modf, sqrt
 from pathlib import Path
 import sys
 import tkinter
@@ -7,24 +7,25 @@ import tkinter.filedialog
 import wave
 
 import mido
-from mido import Message, MidiFile, MidiTrack, MetaMessage
 import numpy as np
+import resampy
 import scipy
+import soundfile as sf
 from tqdm import tqdm
 
 
-# 設定ゾーン  不正な入力のチェックをしていないので変更には気をつける
+# 設定ゾーン  不正な入力のチェックはしていないから注意
 class Settings:
     # ピッチベンドを無効にするか
     disable_pitch_bend = False
     # 近い音量のノートを繋げる, 大きくすると軽量になる, -1で無効化
     similar_velocity_threshold = 4
-    # 3以上推奨, 大きくすると軽量になる
-    minimum_velocity = 6
-    # カイザー窓のβ値  β=πα
-    window_beta = 8
+    # 2以上推奨, 大きくすると軽量になる
+    minimum_velocity = 4
     # %を表記しない
-    overlap_rate = 50
+    overlap_rate = 75
+    # 0埋め倍数
+    pad_multiple = 2
 
 
 class AboutTracks:
@@ -44,8 +45,36 @@ class NoteMessage:
     channel: int
 
 
+def WrapToPi(phases):
+    PI = np.pi
+    return (phases + PI) % (2 * PI) - PI
+
+
+def estimate_frequency(theta1, theta2, N, pad_N, fs):
+    # kは周波数軸の配列
+    overlap = int(100 / (100 - Settings.overlap_rate) + 0.5)
+    step = N // overlap
+    # 時間間隔 Δt=({フレーム間の距離} / fs) 
+    delta_t = step / fs
+    # 生の周波数推定値（エイリアシング未補正）
+    phase_diff = WrapToPi(theta2 - theta1)
+    f_raw = phase_diff / (2 * np.pi * delta_t)
+    # FFTビンの周波数
+    f_k = np.arange(0, pad_N) * (fs / pad_N)
+    # 最適なnの推定
+    n = np.round((f_k - f_raw) * delta_t)
+    # 最終的な周波数推定値
+    f_n = f_raw + n / delta_t
+    # 対数がエラーにならないように
+    np.maximum(f_n, 1, out=f_n)
+    # ノート番号を求める用
+    log10_f_n = np.log10(f_n)
+
+    return log10_f_n
+
+
 # midi化関数
-def fft2midi(F, before_volume_list, fs, N, start_note, end_note, append_pitch_bend, next_time):
+def fft2midi(F, F_next, before_volume_list, fs, N, start_note, end_note, append_pitch_bend, next_time):
 
     TWELFTH_ROOT_OF_2 = 1.059463094359295264561825294946
     TWELVE_OVER_LOG10_2 = 39.86313713864834817444383315387
@@ -54,11 +83,13 @@ def fft2midi(F, before_volume_list, fs, N, start_note, end_note, append_pitch_be
     current_volume_list = [0] * 1280
     number_of_tracks = AboutTracks.number_of_tracks
     tracks = [[] for _ in range(number_of_tracks)]
-    sec = N / fs
+    pad_N = N * Settings.pad_multiple
+    sec = pad_N / fs
     before_note = 0.0
     sum_volume = 0.0
-    # 1.05~1.1乗ぐらいがいい音に聞こえる。小さくすると高音が刺さる
-    volumes = (np.abs(F) / N * 2) ** 1.05
+    volumes = np.abs(F) / pad_N * 2
+
+    truth_notes = estimate_frequency(np.angle(F), np.angle(F_next), N, pad_N, fs)
 
     range_start = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (start_note - 69 - 1))
     range_end = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (end_note - 69 + 1))
@@ -67,22 +98,21 @@ def fft2midi(F, before_volume_list, fs, N, start_note, end_note, append_pitch_be
     note_digit = AboutTracks.note_digit
 
     for i in range(range_start, range_end):
-
         volume = volumes[i]
-        if volume < 3:
+        if volume < 2:
             continue
 
-        # ノート番号計算, i/secは周波数
-        note = log10(i / sec) * TWELVE_OVER_LOG10_2 - LOG10_440_TIMES_TOL_MINUS_69
+        # ノート番号計算
+        note = truth_notes[i] * TWELVE_OVER_LOG10_2 - LOG10_440_TIMES_TOL_MINUS_69
         round_1_note = int(note * note_digit + 0.5) / note_digit
 
         # 音が変わったら前の音階をmidiに打ち込む
         if before_note != round_1_note:
             round_0_note = int(before_note + 0.5)
             if round_0_note <= 127:
-                midi_note_decimal, midi_note_int = modf(before_note)
+                midi_note_decimal, _ = modf(before_note)
                 track_num = int(midi_note_decimal * 10 + 0.5)
-                # なぜ平方根が必要かはわからない
+                # なぜ平方根をとると音がいい感じになった
                 current_volume_list[track_num * 128 + round_0_note] = sqrt(sum_volume)
 
             before_note = round_1_note
@@ -103,6 +133,7 @@ def fft2midi(F, before_volume_list, fs, N, start_note, end_note, append_pitch_be
             before_volume = before_volume_list[note_idx]
             current_volume = current_volume_list[note_idx]
 
+            # 定数部分が0以上でないとmidiが壊れる
             is_below_min = current_volume <= 2
             # 前回音があったとき
             if before_volume != 0:
@@ -164,45 +195,29 @@ def choose_wav_file():
 
 # Wave読み込み
 def read_wav(file_path):
-    with wave.open(str(file_path)) as wf:
-        # 全部読み込む
-        buf = wf.readframes(-1) 
+    # サウンドファイルを読み込む
+    data, samplerate = sf.read(file_path, dtype=np.float32)
 
-        # 16bitのときのみ
-        if wf.getsampwidth() == 2:
-            data = np.frombuffer(buf, dtype=np.int16)
-            data = (data / 32768).astype(np.float32)
-            fs = wf.getframerate()
-        else:
-            sys.exit("ビット深度が16bit以外です")
+    # ステレオの場合、チャンネルを合成
+    if data.ndim == 2:
+        mono_data =(data[:, 0] + data[:, 1]) / 2.0
+    else:
+        mono_data = data
 
-        if wf.getnchannels() == 2:
-            mono_data = (data[::2] + data[1::2]) / 2.0
-        else:
-            mono_data = data
-
-    return mono_data, fs
+    return mono_data, samplerate
 
 
 def definition_midi():
     # midi定義
     number_of_tracks = AboutTracks.number_of_tracks
-    mid = MidiFile()
-    tracks = [MidiTrack() for _ in range(number_of_tracks)]
+    mid = mido.MidiFile()
+    tracks = [mido.MidiTrack() for _ in range(number_of_tracks)]
     mid.tracks.extend(tracks)
-    tracks[0].append(MetaMessage("set_tempo", tempo=mido.bpm2tempo(240)))
-    tracks[0].append(MetaMessage(
+    tracks[0].append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(240)))
+    tracks[0].append(mido.MetaMessage(
         "time_signature", numerator=4, denominator=4,
         clocks_per_click=24, notated_32nd_notes_per_beat=8
     ))
-    # 音色変更用
-    #for i, track in enumerate(tracks):
-    #    ch = i if i != 9 else 10
-    #    # バンク  value=にMSB,LSBの順で
-    #    track.append(Message("control_change", channel=ch, control=0, value=0))
-    #    track.append(Message("control_change", channel=ch, control=32, value=0))
-    #    # program=に0から数えた音色の番号
-    #    track.append(Message("program_change", channel=ch, program=0))
 
     return mid, tracks
 
@@ -211,14 +226,14 @@ def definition_midi():
 def resampling(data, fs, target_fs, amp):
     data = data / amp
     # リサンプリング
-    data = scipy.signal.resample_poly(data, target_fs, fs)
-
-    return data
+    return resampy.resample(data, sr_orig=fs, sr_new=target_fs, filter='sinc_window', num_zeros=32)
 
 
 def resampling_3(data, fs, new_fs_list):
     resampled_data_list = []
+    # リサンプリングによって-1~1に波形が収まらない可能性を考慮
     amp = max(max(data), -(min(data) + 1)) * 1.05
+    # ループは波形の分割数
     for i in range(3):
         resampled_data_list.append(
             resampling(data, fs, new_fs_list[i], amp)
@@ -227,12 +242,21 @@ def resampling_3(data, fs, new_fs_list):
     return resampled_data_list
 
 
+def convert_16_bit(data):
+    # dataは-1~1と仮定
+    data *= 32767
+    np.round(data, out=data)
+    np.clip(data, -32768, 32767, out=data)
+
+    return data.astype(np.int16)
+
+    
 # オーディオ分割
 def audio_split(data, win_size):
-    len_data = len(data)
+    padded_data = data
+    len_data = len(padded_data)
     # symはFalseの方がスペクトラム解析に良いらしい
-    win = scipy.signal.windows.kaiser(win_size, Settings.window_beta, sym=False)
-    win = win.astype(np.float32)
+    win = scipy.signal.windows.hann(win_size, sym=False).astype(np.float32)
 
     # 50%→2, 75%→4に変換
     overlap = int(100 / (100 - Settings.overlap_rate) + 0.5)
@@ -241,16 +265,14 @@ def audio_split(data, win_size):
     num_segments = (len_data - win_size) // step_size + 1
 
     indices = np.arange(0, num_segments * step_size, step_size)
-    segments_data = np.zeros((num_segments + 1, win_size), dtype=np.int16)
+    segments_data = np.zeros((num_segments + 1, win_size * Settings.pad_multiple), dtype=np.int16)
 
+    pad_size = win_size * (Settings.pad_multiple - 1)
     for idx, start in enumerate(indices):
         end = start + win_size
-        segment = data[start:end] * win
-        # 16bit化処理
-        segment *= 32767
-        np.round(segment, out=segment)
-        np.clip(segment, -32768, 32767, out=segment)
-        segments_data[idx, :] = segment
+        segment = padded_data[start:end] * win
+        padded_segment = np.pad(segment, (0, pad_size), mode='constant', constant_values=0)
+        segments_data[idx, :] = convert_16_bit(padded_segment)
 
     return segments_data
 
@@ -274,7 +296,7 @@ def normalize_velocity(tracks):
     ])
     max_velocity = velocities.max(initial=1)
 
-    # 正規化係数を計算
+    # 正規化係数
     normalize = 127 / max_velocity
 
     # 閾値以下のノート番号を記録するリスト
@@ -287,6 +309,8 @@ def normalize_velocity(tracks):
         for note_event in track:
             if note_event.type == "note_on":
                 new_velocity = int(note_event.velocity * normalize + 0.5)
+                if new_velocity > 127:
+                    new_velocity = 127
                 if new_velocity <= min_velocity:
                     removed_notes.add((note_event.note, note_event.channel))
                     continue
@@ -322,7 +346,7 @@ def create_all_note_messages(N, fs):
         for j in range(128): # note number
             for k in range(128): # velocity
                 all_note_messages_list[16384 * i + 128 * j + k] = (
-                    Message("note_on", note=j, velocity=k, channel=ch)
+                    mido.Message("note_on", note=j, velocity=k, channel=ch)
                 )
     start_idx += 163840
 
@@ -331,18 +355,18 @@ def create_all_note_messages(N, fs):
         ch = i if i != 9 else 10
         for j in range(128): # note number
             all_note_messages_list[128 * i + j + start_idx] = (
-                Message("note_off", note=j, channel=ch)
+                mido.Message("note_off", note=j, channel=ch)
             )
     start_idx += 1280
 
     # 3
     sec = N / fs
     overlap = int(100 / (100 - Settings.overlap_rate) + 0.5)
-    t = int(240 * sec / overlap + 0.5)
+    t = int(960 * sec / overlap + 0.5)
     for i in range(10): # channel
         ch = i if i != 9 else 10
         all_note_messages_list[i + start_idx] = (
-            Message("note_off", channel=ch, time=t)
+            mido.Message("note_off", channel=ch, time=t)
         )
     start_idx += 10
 
@@ -351,7 +375,7 @@ def create_all_note_messages(N, fs):
         ch = i if i != 9 else 10
         bend_values = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410]
         all_note_messages_list[i + start_idx] = (
-            Message("pitchwheel", channel=ch, pitch=bend_values[i])
+            mido.Message("pitchwheel", channel=ch, pitch=bend_values[i])
         )
     start_idx += 10
 
@@ -404,57 +428,66 @@ def main():
     resampled_data_list = resampling_3(data, fs, new_fs_list)
 
     # オーディオ分割
-    window_size_high = 4096
-    window_size_middle = 2048  # 時間分解能がhighの1/2
-    window_size_low = 256      # 時間分解能がhighの1/4
-    window_size_low_list = (window_size_high, window_size_middle, window_size_low)
-    segment_data_list = audio_split_3(resampled_data_list, window_size_low_list)
+    window_size_high = 2048
+    window_size_middle = 1024 # 時間分解能がhighの1/2
+    window_size_low = 128      # 時間分解能がhighの1/4
+    window_size_list = (window_size_high, window_size_middle, window_size_low)
+    segment_data_list = audio_split_3(resampled_data_list, window_size_list)
     segments_data_high, segments_data_middle, segments_data_low = segment_data_list
 
     del data, resampled_data_list, segment_data_list
 
-    # ここから変換の準備
+    # 変換の準備
     before_volume_list_high = [0] * 1280
     before_volume_list_middle = [0] * 1280
     before_volume_list_low = [0] * 1280
 
     # loopの長さ
-    segments_data_range = len(segments_data_low) * 4
+    segments_data_range = len(segments_data_low) * 4 - 4
 
     # FFT&midiデータ化
-    temp_track = []
+    temp_tracks = []
+    ffted_data_low = scipy.fft.fft(segments_data_low[0])
+    ffted_data_middle = scipy.fft.fft(segments_data_middle[0])
+    ffted_data_high = scipy.fft.fft(segments_data_high[0])
     for i in tqdm(range(0, segments_data_range), desc="Convert to MIDI (2/5)"):
         # 低音用
         if i % 4 == 0:
-            ffted_data_low = scipy.fft.fft(segments_data_low[i // 4])
+            ffted_data_low_next = scipy.fft.fft(segments_data_low[i // 4 + 1])
             before_volume_list_low, part_of_tracks = fft2midi(
-                F=ffted_data_low, before_volume_list=before_volume_list_low,
+                F=ffted_data_low, F_next=ffted_data_low_next,
+                before_volume_list=before_volume_list_low,
                 fs=new_fs_low, N=window_size_low,
                 start_note=36, end_note=60,
                 append_pitch_bend=False, next_time=False
             )
-            temp_track.extend(part_of_tracks)
+            ffted_data_low = ffted_data_low_next
+            temp_tracks.extend(part_of_tracks)
 
         # 中音用
         if i % 2 == 0:
-            ffted_data_middle = scipy.fft.fft(segments_data_middle[i // 2])
+            ffted_data_middle_next = scipy.fft.fft(segments_data_middle[i // 2 + 1])
             before_volume_list_middle, part_of_tracks = fft2midi(
-                F=ffted_data_middle, before_volume_list=before_volume_list_middle,
+                F=ffted_data_middle, F_next=ffted_data_middle_next,
+                before_volume_list=before_volume_list_middle,
                 fs=new_fs_middle, N=window_size_middle,
                 start_note=60, end_note=108,
                 append_pitch_bend=True, next_time=False
             )
-            temp_track.extend(part_of_tracks)
+            ffted_data_middle = ffted_data_middle_next
+            temp_tracks.extend(part_of_tracks)
 
         # 高音用
-        ffted_data_high = scipy.fft.fft(segments_data_high[i])
+        ffted_data_high_next = scipy.fft.fft(segments_data_high[i + 1])
         before_volume_list_high, part_of_tracks = fft2midi(
-            F=ffted_data_high, before_volume_list=before_volume_list_high,
+            F=ffted_data_high, F_next=ffted_data_high_next,
+            before_volume_list=before_volume_list_high,
             fs=new_fs_high, N=window_size_high,
             start_note=108, end_note=128,
             append_pitch_bend=False, next_time=True
         )
-        temp_track.extend(part_of_tracks)
+        ffted_data_high = ffted_data_high_next
+        temp_tracks.extend(part_of_tracks)
 
     del segments_data_high, segments_data_middle, segments_data_low
 
@@ -463,7 +496,7 @@ def main():
 
     print("\n正規化処理中…… (3/5)")
 
-    normalized_tracks = normalize_velocity(temp_track)
+    normalized_tracks = normalize_velocity(temp_tracks)
 
     print("\nMIDIメッセージ生成中…… (4/5)")
 
@@ -471,7 +504,7 @@ def main():
 
     append_tracks(tracks, normalized_tracks, all_note_messages_list)
 
-    del temp_track, normalized_tracks, all_note_messages_list
+    del temp_tracks, normalized_tracks, all_note_messages_list
 
     print("\nMIDI保存中…… (5/5)")
 
