@@ -72,7 +72,7 @@ def estimate_frequency(theta_prev, theta, N, pad_N, fs):
 
 
 # midi化関数
-def fft2midi(F_prev, F, before_volume_list, fs, N, start_note, end_note, append_pitch_bend, next_time):
+def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, append_pitch_bend, next_time):
 
     TWELFTH_ROOT_OF_2 = 1.059463094359295264561825294946
     TWELVE_OVER_LOG10_2 = 39.86313713864834817444383315387
@@ -88,7 +88,8 @@ def fft2midi(F_prev, F, before_volume_list, fs, N, start_note, end_note, append_
     volumes = np.abs(F) / pad_N
 
     # 位相差からより正確な周波数(ノート番号)を得る
-    truth_notes = estimate_frequency(np.angle(F_prev), np.angle(F), N, pad_N, fs)
+    angle_F = np.angle(F)
+    truth_notes = estimate_frequency(angel_F_prev, angle_F, N, pad_N, fs)
 
     # 境界の±1ぐらいから開始してmidiノート周辺に対応するビンの振幅を拾えるようにする
     range_start = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (start_note - 69 - 1))
@@ -159,7 +160,7 @@ def fft2midi(F_prev, F, before_volume_list, fs, N, start_note, end_note, append_
         if next_time:
             track.append(NoteMessage(type="next_time", note=-1, velocity=-1, channel=ch))
 
-    return current_volume_list, tracks
+    return current_volume_list, tracks, angle_F
 
 
 def choose_wav_file():
@@ -421,80 +422,79 @@ def main():
     # Wav読み込み
     data, fs = read_wav(input_path_obj)
 
+    # 最後の方まで音があるとmidiで音が残ったままになるため
     new_data = np.pad(data, (4096, 4096), mode='constant', constant_values=0)
 
     print("\n再サンプリング&データ分割中…… (1/5)\n")
 
     # リサンプリング
     new_fs_high = 40960
-    new_fs_middle = 10240
+    new_fs_mid = 10240
     new_fs_low = 640
-    new_fs_list = (new_fs_high, new_fs_middle, new_fs_low)
+    new_fs_list = (new_fs_high, new_fs_mid, new_fs_low)
     resampled_data_list = resampling_3(new_data, fs, new_fs_list)
 
     # オーディオ分割
     window_size_high = 2048
-    window_size_middle = 1024 # 時間分解能がhighの1/2
+    window_size_mid = 1024 # 時間分解能がhighの1/2
     window_size_low = 128      # 時間分解能がhighの1/4
-    window_size_list = (window_size_high, window_size_middle, window_size_low)
+    window_size_list = (window_size_high, window_size_mid, window_size_low)
     segment_data_list = audio_split_3(resampled_data_list, window_size_list)
-    segments_data_high, segments_data_middle, segments_data_low = segment_data_list
+    segments_data_high, segments_data_mid, segments_data_low = segment_data_list
 
     del data, resampled_data_list, segment_data_list
 
     # 変換の準備
     before_volume_list_high = [0] * 1280
-    before_volume_list_middle = [0] * 1280
+    before_volume_list_mid = [0] * 1280
     before_volume_list_low = [0] * 1280
-
     # loopの長さ
     segments_data_range = len(segments_data_low) * 4
-    # FFT&midiデータ化
-    temp_tracks = []
+    
     # それぞれループのインデックスが4のときの一つ前の配列を指定
-    ffted_data_low_prev = scipy.fft.fft(segments_data_low[0])
-    ffted_data_middle_prev = scipy.fft.fft(segments_data_middle[1])
-    ffted_data_high_prev = scipy.fft.fft(segments_data_high[3])
+    angle_F_low = np.angle(scipy.fft.fft(segments_data_low[0]))
+    angle_F_mid = np.angle(scipy.fft.fft(segments_data_mid[1]))
+    angle_F_high = np.angle(scipy.fft.fft(segments_data_high[3]))
+
+    # 保存用
+    temp_tracks = []
     for i in tqdm(range(4, segments_data_range), desc="Convert to MIDI (2/5)"):
         # 低音用
         if i % 4 == 0:
             ffted_data_low = scipy.fft.fft(segments_data_low[i // 4])
-            before_volume_list_low, part_of_tracks = fft2midi(
-                F_prev=ffted_data_low_prev, F=ffted_data_low,
+            before_volume_list_low, part_of_tracks, angle_F_low = fft2midi(
+                angel_F_prev=angle_F_low, F=ffted_data_low,
                 before_volume_list=before_volume_list_low,
                 fs=new_fs_low, N=window_size_low,
                 start_note=36, end_note=60,
                 append_pitch_bend=False, next_time=False
             )
-            ffted_data_low_prev = ffted_data_low
             temp_tracks.extend(part_of_tracks)
 
         # 中音用
         if i % 2 == 0:
-            ffted_data_middle = scipy.fft.fft(segments_data_middle[i // 2])
-            before_volume_list_middle, part_of_tracks = fft2midi(
-                F_prev=ffted_data_middle_prev, F=ffted_data_middle,
-                before_volume_list=before_volume_list_middle,
-                fs=new_fs_middle, N=window_size_middle,
+            ffted_data_mid = scipy.fft.fft(segments_data_mid[i // 2])
+            before_volume_list_mid, part_of_tracks, angle_F_mid = fft2midi(
+                angel_F_prev=angle_F_mid, F=ffted_data_mid,
+                before_volume_list=before_volume_list_mid,
+                fs=new_fs_mid, N=window_size_mid,
                 start_note=60, end_note=108,
                 append_pitch_bend=True, next_time=False
             )
-            ffted_data_middle_prev = ffted_data_middle
             temp_tracks.extend(part_of_tracks)
 
         # 高音用
         ffted_data_high = scipy.fft.fft(segments_data_high[i])
-        before_volume_list_high, part_of_tracks = fft2midi(
-            F_prev=ffted_data_high_prev, F=ffted_data_high,
+        before_volume_list_high, part_of_tracks, angle_F_high = fft2midi(
+            angel_F_prev=angle_F_high, F=ffted_data_high,
             before_volume_list=before_volume_list_high,
             fs=new_fs_high, N=window_size_high,
             start_note=108, end_note=128,
             append_pitch_bend=False, next_time=True
         )
-        ffted_data_high_prev = ffted_data_high
         temp_tracks.extend(part_of_tracks)
 
-    del segments_data_high, segments_data_middle, segments_data_low
+    del segments_data_high, segments_data_mid, segments_data_low
 
     # midi定義
     mid, tracks = definition_midi()
