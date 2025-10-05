@@ -49,31 +49,30 @@ def WrapToPi(phases):
     return (phases + PI) % (2 * PI) - PI
 
 
-def estimate_frequency(theta1, theta2, N, pad_N, fs):
-    # kは周波数軸の配列
+def estimate_frequency(theta_prev, theta, N, pad_N, fs):
     overlap = int(100 / (100 - Settings.overlap_rate) + 0.5)
-    step = N // overlap
-    # 時間間隔 Δt=({フレーム間の距離} / fs) 
-    delta_t = step / fs
-    # 生の周波数推定値（エイリアシング未補正）
-    phase_diff = WrapToPi(theta2 - theta1)
-    f_raw = phase_diff / (2 * np.pi * delta_t)
-    # FFTビンの周波数
-    f_k = np.arange(0, pad_N) * (fs / pad_N)
-    # 最適なnの推定
-    n = np.round((f_k - f_raw) * delta_t)
-    # 最終的な周波数推定値
-    f_n = f_raw + n / delta_t
+    # フレーム間隔
+    delta_t = int(N / overlap + 0.5)
+    # 各周波数ビンに対応する角周波数
+    omega = 2 * np.pi * np.arange(0, pad_N) / pad_N
+    # フレーム間の周波数の位相の変化と対応する周波数のビンから計算される位相の変化との差
+    delta_phi = WrapToPi(theta - theta_prev - omega * delta_t)
+    # omegaを補正して位相の変化がより正確になるようにする
+    true_omega = omega + delta_phi / delta_t
+    # omegaの式より真の周波数ビン(np.arrangeの値)を得る
+    f_bin = true_omega * pad_N / (2 * np.pi)
+    # 周波数ビンを周波数に変換
+    freq = f_bin / pad_N * fs
     # 対数がエラーにならないように
-    np.maximum(f_n, 1, out=f_n)
+    np.maximum(freq, 1, out=freq)
     # ノート番号を求める用
-    log10_f_n = np.log10(f_n)
+    log10_f_n = np.log10(freq)
 
     return log10_f_n
 
 
 # midi化関数
-def fft2midi(F, F_next, before_volume_list, fs, N, start_note, end_note, append_pitch_bend, next_time):
+def fft2midi(F_prev, F, before_volume_list, fs, N, start_note, end_note, append_pitch_bend, next_time):
 
     TWELFTH_ROOT_OF_2 = 1.059463094359295264561825294946
     TWELVE_OVER_LOG10_2 = 39.86313713864834817444383315387
@@ -86,10 +85,12 @@ def fft2midi(F, F_next, before_volume_list, fs, N, start_note, end_note, append_
     sec = pad_N / fs
     before_note = 0.0
     sum_volume = 0.0
-    volumes = np.abs(F) / pad_N * 2
+    volumes = np.abs(F) / pad_N
 
-    truth_notes = estimate_frequency(np.angle(F), np.angle(F_next), N, pad_N, fs)
+    # 位相差からより正確な周波数(ノート番号)を得る
+    truth_notes = estimate_frequency(np.angle(F_prev), np.angle(F), N, pad_N, fs)
 
+    # 境界の±1ぐらいから開始してmidiノート周辺に対応するビンの振幅を拾えるようにする
     range_start = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (start_note - 69 - 1))
     range_end = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (end_note - 69 + 1))
 
@@ -98,6 +99,7 @@ def fft2midi(F, F_next, before_volume_list, fs, N, start_note, end_note, append_
 
     for i in range(range_start, range_end):
         volume = volumes[i]
+        # 音量が小さすぎるときは無視する
         if volume < 2:
             continue
 
@@ -111,7 +113,7 @@ def fft2midi(F, F_next, before_volume_list, fs, N, start_note, end_note, append_
             if round_0_note <= 127:
                 midi_note_decimal, _ = modf(before_note)
                 track_num = int(midi_note_decimal * 10 + 0.5)
-                # なぜ平方根をとると音がいい感じになった
+                # 平方根をとると音がいい感じになる
                 current_volume_list[track_num * 128 + round_0_note] = sqrt(sum_volume)
 
             before_note = round_1_note
@@ -123,7 +125,7 @@ def fft2midi(F, F_next, before_volume_list, fs, N, start_note, end_note, append_
     similar_velocity_threshold = Settings.similar_velocity_threshold
     disable_pitch_bend = Settings.disable_pitch_bend
     for i, track in enumerate(tracks):
-        # 0から数えて9つ目は打楽器
+        # 0から数えて9つ目は打楽器のため
         ch = i if i != 9 else 10
         if append_pitch_bend and not disable_pitch_bend:
             track.append(NoteMessage(type="pitchwheel", note=-1, velocity=-1, channel=ch))
@@ -153,6 +155,7 @@ def fft2midi(F, F_next, before_volume_list, fs, N, start_note, end_note, append_
             else:
                 current_volume_list[note_idx] = 0
 
+        # 別関数として分けるか考え中
         if next_time:
             track.append(NoteMessage(type="next_time", note=-1, velocity=-1, channel=ch))
 
@@ -182,7 +185,7 @@ def choose_wav_file():
         output_path_obj = input_path_obj.with_name(f"{input_path_obj.stem} [disable pitch bend].mid")
     if output_path_obj.exists():
         base_name = output_path_obj.stem
-        for i in range(1, 1000):
+        for i in range(1, 100):
             output_path_obj = output_path_obj.with_name(f"{base_name} ({i}).mid")
             if not output_path_obj.exists():
                 break
@@ -231,6 +234,7 @@ def resampling(data, fs, target_fs, amp):
 def resampling_3(data, fs, new_fs_list):
     resampled_data_list = []
     # リサンプリングによって-1~1に波形が収まらない可能性を考慮
+    # minの方は+1をしておかないとエラーになる場合がある
     amp = max(max(data), -(min(data) + 1)) * 1.05
     # ループは波形の分割数
     for i in range(3):
@@ -417,6 +421,8 @@ def main():
     # Wav読み込み
     data, fs = read_wav(input_path_obj)
 
+    new_data = np.pad(data, (4096, 4096), mode='constant', constant_values=0)
+
     print("\n再サンプリング&データ分割中…… (1/5)\n")
 
     # リサンプリング
@@ -424,7 +430,7 @@ def main():
     new_fs_middle = 10240
     new_fs_low = 640
     new_fs_list = (new_fs_high, new_fs_middle, new_fs_low)
-    resampled_data_list = resampling_3(data, fs, new_fs_list)
+    resampled_data_list = resampling_3(new_data, fs, new_fs_list)
 
     # オーディオ分割
     window_size_high = 2048
@@ -442,50 +448,50 @@ def main():
     before_volume_list_low = [0] * 1280
 
     # loopの長さ
-    segments_data_range = len(segments_data_low) * 4 - 4
-
+    segments_data_range = len(segments_data_low) * 4
     # FFT&midiデータ化
     temp_tracks = []
-    ffted_data_low = scipy.fft.fft(segments_data_low[0])
-    ffted_data_middle = scipy.fft.fft(segments_data_middle[0])
-    ffted_data_high = scipy.fft.fft(segments_data_high[0])
-    for i in tqdm(range(0, segments_data_range), desc="Convert to MIDI (2/5)"):
+    # それぞれループのインデックスが4のときの一つ前の配列を指定
+    ffted_data_low_prev = scipy.fft.fft(segments_data_low[0])
+    ffted_data_middle_prev = scipy.fft.fft(segments_data_middle[1])
+    ffted_data_high_prev = scipy.fft.fft(segments_data_high[3])
+    for i in tqdm(range(4, segments_data_range), desc="Convert to MIDI (2/5)"):
         # 低音用
         if i % 4 == 0:
-            ffted_data_low_next = scipy.fft.fft(segments_data_low[i // 4 + 1])
+            ffted_data_low = scipy.fft.fft(segments_data_low[i // 4])
             before_volume_list_low, part_of_tracks = fft2midi(
-                F=ffted_data_low, F_next=ffted_data_low_next,
+                F_prev=ffted_data_low_prev, F=ffted_data_low,
                 before_volume_list=before_volume_list_low,
                 fs=new_fs_low, N=window_size_low,
                 start_note=36, end_note=60,
                 append_pitch_bend=False, next_time=False
             )
-            ffted_data_low = ffted_data_low_next
+            ffted_data_low_prev = ffted_data_low
             temp_tracks.extend(part_of_tracks)
 
         # 中音用
         if i % 2 == 0:
-            ffted_data_middle_next = scipy.fft.fft(segments_data_middle[i // 2 + 1])
+            ffted_data_middle = scipy.fft.fft(segments_data_middle[i // 2])
             before_volume_list_middle, part_of_tracks = fft2midi(
-                F=ffted_data_middle, F_next=ffted_data_middle_next,
+                F_prev=ffted_data_middle_prev, F=ffted_data_middle,
                 before_volume_list=before_volume_list_middle,
                 fs=new_fs_middle, N=window_size_middle,
                 start_note=60, end_note=108,
                 append_pitch_bend=True, next_time=False
             )
-            ffted_data_middle = ffted_data_middle_next
+            ffted_data_middle_prev = ffted_data_middle
             temp_tracks.extend(part_of_tracks)
 
         # 高音用
-        ffted_data_high_next = scipy.fft.fft(segments_data_high[i + 1])
+        ffted_data_high = scipy.fft.fft(segments_data_high[i])
         before_volume_list_high, part_of_tracks = fft2midi(
-            F=ffted_data_high, F_next=ffted_data_high_next,
+            F_prev=ffted_data_high_prev, F=ffted_data_high,
             before_volume_list=before_volume_list_high,
             fs=new_fs_high, N=window_size_high,
             start_note=108, end_note=128,
             append_pitch_bend=False, next_time=True
         )
-        ffted_data_high = ffted_data_high_next
+        ffted_data_high_prev = ffted_data_high
         temp_tracks.extend(part_of_tracks)
 
     del segments_data_high, segments_data_middle, segments_data_low
