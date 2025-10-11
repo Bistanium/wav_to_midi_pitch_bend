@@ -7,6 +7,7 @@ import tkinter.filedialog
 
 import mido
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 import resampy
 import scipy
 import soundfile as sf
@@ -49,12 +50,49 @@ def WrapToPi(phases):
     return (phases + PI) % (2 * PI) - PI
 
 
+def detect_peaks(data, n=3):
+    if len(data) < 2 * n + 1:
+        return np.array([], dtype=int)  # データが小さすぎる場合
+
+    # 中心を含めたウィンドウを作成
+    windows = sliding_window_view(data, 2 * n + 1)
+    
+    # 中心のインデックス
+    center = n
+
+    # 中心値が左右の全ての値より大きいかを確認
+    is_peak = np.all(windows[:, center][:, None] > np.delete(windows, center, axis=1), axis=1)
+
+    return np.where(is_peak)[0] + n
+
+
+def divide_into_regions(data, n=3):
+    frameSize = len(data)
+    peakIndices = detect_peaks(data, n)
+
+    numPeaks = len(peakIndices)
+    if numPeaks == 0:
+        return [(0, frameSize)], [np.argmax(data)]
+
+    # 中央で単純分割（中点を境界とする）
+    borders = np.empty(numPeaks + 1, dtype=np.int64)
+    borders[0] = 0
+    borders[-1] = frameSize
+
+    if numPeaks > 1:
+        borders[1:-1] = (peakIndices[:-1] + peakIndices[1:]) // 2
+
+    region_array = np.stack((borders[:-1], borders[1:]), axis=1)
+
+    return region_array, peakIndices
+
+
 def estimate_frequency(theta_prev, theta, N, pad_N, fs):
     overlap = int(100 / (100 - Settings.overlap_rate) + 0.5)
     # フレーム間隔
     delta_t = int(N / overlap + 0.5)
     # 各周波数ビンに対応する角周波数
-    omega = 2 * np.pi * np.arange(0, pad_N) / pad_N
+    omega = 2 * np.pi * np.arange(0, len(theta)) / pad_N
     # フレーム間の周波数の位相の変化と対応する周波数のビンから計算される位相の変化との差
     delta_phi = WrapToPi(theta - theta_prev - omega * delta_t)
     # omegaを補正して位相の変化がより正確になるようにする
@@ -62,13 +100,13 @@ def estimate_frequency(theta_prev, theta, N, pad_N, fs):
     # omegaの式より真の周波数ビン(np.arrangeの値)を得る
     f_bin = true_omega * pad_N / (2 * np.pi)
     # 周波数ビンを周波数に変換
-    freq = f_bin / pad_N * fs
+    frequency = f_bin / pad_N * fs
     # 対数がエラーにならないように
-    np.maximum(freq, 1, out=freq)
+    np.maximum(frequency, 1, out=frequency)
     # ノート番号を求める用
-    log10_f_n = np.log10(freq)
+    log10_frequency = np.log10(frequency)
 
-    return log10_f_n
+    return log10_frequency
 
 
 # midi化関数
@@ -85,7 +123,9 @@ def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, a
     sec = pad_N / fs
     before_note = 0.0
     sum_volume = 0.0
-    volumes = np.abs(F) / pad_N
+    amplitude = np.abs(F) / pad_N
+
+    regions, peak_indices = divide_into_regions(amplitude, n=3)
 
     # 位相差からより正確な周波数(ノート番号)を得る
     angle_F = np.angle(F)
@@ -98,26 +138,41 @@ def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, a
     # note_digitは使うトラックの数ともいえる
     note_digit = AboutTracks.note_digit
 
+    pos_idx = 0
+    for i, peak_idx in enumerate(peak_indices):
+        # ピークのインデックスがrange_startを超えるときの配列のインデックスを得る
+        if range_start < peak_idx:
+            pos_idx = i
+            break
+
+    peak_indices_size = len(peak_indices)
     for i in range(range_start, range_end):
-        volume = volumes[i]
-        # 音量が小さすぎるときは無視する
-        if volume < 2:
+        # peak_indicesの範囲外にアクセスするのを防ぐ
+        if peak_indices_size <= pos_idx:
+            break
+        # ピークのインデックスになるまでスキップ
+        if i != peak_indices[pos_idx]:
             continue
+        region_left, region_right = regions[pos_idx]
+        pos_idx += 1
+
+        # ピーク周辺の音はピークのものとみなす
+        volume = sum(amplitude[region_left:region_right])
 
         # ノート番号計算
         note = truth_notes[i] * TWELVE_OVER_LOG10_2 - LOG10_440_TIMES_TOL_MINUS_69
-        round_1_note = int(note * note_digit + 0.5) / note_digit
+        round_note = int(note * note_digit + 0.5) / note_digit
 
         # 音が変わったら前の音階をmidiに打ち込む
-        if before_note != round_1_note:
+        if abs(round_note - before_note) >= 1 / note_digit:
             round_0_note = int(before_note + 0.5)
             if round_0_note <= 127:
                 midi_note_decimal, _ = modf(before_note)
-                track_num = int(midi_note_decimal * 10 + 0.5)
+                track_num = int(midi_note_decimal * note_digit + 0.5)
                 # 平方根をとると音がいい感じになる
                 current_volume_list[track_num * 128 + round_0_note] = sqrt(sum_volume)
 
-            before_note = round_1_note
+            before_note = round_note
             sum_volume = volume
         else:
             sum_volume += volume
@@ -232,13 +287,13 @@ def resampling(data, fs, target_fs, amp):
     return resampy.resample(data, sr_orig=fs, sr_new=target_fs, filter='sinc_window', num_zeros=32)
 
 
-def resampling_3(data, fs, new_fs_list):
+def resampling_n(data, fs, new_fs_list):
     resampled_data_list = []
     # リサンプリングによって-1~1に波形が収まらない可能性を考慮
     # minの方は+1をしておかないとエラーになる場合がある
     amp = max(max(data), -(min(data) + 1)) * 1.05
     # ループは波形の分割数
-    for i in range(3):
+    for i in range(len(new_fs_list)):
         resampled_data_list.append(
             resampling(data, fs, new_fs_list[i], amp)
         )
@@ -281,11 +336,11 @@ def audio_split(data, win_size):
     return segments_data
 
 
-def audio_split_3(resampled_datas, window_size_low_list):
+def audio_split_n(resampled_datas, window_size_list):
     segment_data_list = []
-    for i in range(3):
+    for i in range(len(window_size_list)):
         segment_data_list.append(
-            audio_split(resampled_datas[i], window_size_low_list[i])
+            audio_split(resampled_datas[i], window_size_list[i])
         )
 
     return segment_data_list
@@ -423,7 +478,7 @@ def main():
     data, fs = read_wav(input_path_obj)
 
     # 最後の方まで音があるとmidiで音が残ったままになるため
-    new_data = np.pad(data, (4096, 4096), mode='constant', constant_values=0)
+    new_data = np.pad(data, (20480, 20480), mode='constant', constant_values=0)
 
     print("\n再サンプリング&データ分割中…… (1/5)\n")
 
@@ -432,14 +487,14 @@ def main():
     new_fs_mid = 10240
     new_fs_low = 640
     new_fs_list = (new_fs_high, new_fs_mid, new_fs_low)
-    resampled_data_list = resampling_3(new_data, fs, new_fs_list)
+    resampled_data_list = resampling_n(new_data, fs, new_fs_list)
 
     # オーディオ分割
     window_size_high = 2048
-    window_size_mid = 1024 # 時間分解能がhighの1/2
-    window_size_low = 128      # 時間分解能がhighの1/4
+    window_size_mid = 1024      # 時間分解能がhighの1/2
+    window_size_low = 128       # 時間分解能がhighの1/4
     window_size_list = (window_size_high, window_size_mid, window_size_low)
-    segment_data_list = audio_split_3(resampled_data_list, window_size_list)
+    segment_data_list = audio_split_n(resampled_data_list, window_size_list)
     segments_data_high, segments_data_mid, segments_data_low = segment_data_list
 
     del data, resampled_data_list, segment_data_list
@@ -452,16 +507,16 @@ def main():
     segments_data_range = len(segments_data_low) * 4
     
     # それぞれループのインデックスが4のときの一つ前の配列を指定
-    angle_F_low = np.angle(scipy.fft.fft(segments_data_low[0]))
-    angle_F_mid = np.angle(scipy.fft.fft(segments_data_mid[1]))
-    angle_F_high = np.angle(scipy.fft.fft(segments_data_high[3]))
+    angle_F_low = np.angle(scipy.fft.rfft(segments_data_low[0]))
+    angle_F_mid = np.angle(scipy.fft.rfft(segments_data_mid[1]))
+    angle_F_high = np.angle(scipy.fft.rfft(segments_data_high[3]))
 
     # 保存用
     temp_tracks = []
     for i in tqdm(range(4, segments_data_range), desc="Convert to MIDI (2/5)"):
         # 低音用
         if i % 4 == 0:
-            ffted_data_low = scipy.fft.fft(segments_data_low[i // 4])
+            ffted_data_low = scipy.fft.rfft(segments_data_low[i // 4])
             before_volume_list_low, part_of_tracks, angle_F_low = fft2midi(
                 angel_F_prev=angle_F_low, F=ffted_data_low,
                 before_volume_list=before_volume_list_low,
@@ -473,7 +528,7 @@ def main():
 
         # 中音用
         if i % 2 == 0:
-            ffted_data_mid = scipy.fft.fft(segments_data_mid[i // 2])
+            ffted_data_mid = scipy.fft.rfft(segments_data_mid[i // 2])
             before_volume_list_mid, part_of_tracks, angle_F_mid = fft2midi(
                 angel_F_prev=angle_F_mid, F=ffted_data_mid,
                 before_volume_list=before_volume_list_mid,
@@ -484,7 +539,7 @@ def main():
             temp_tracks.extend(part_of_tracks)
 
         # 高音用
-        ffted_data_high = scipy.fft.fft(segments_data_high[i])
+        ffted_data_high = scipy.fft.rfft(segments_data_high[i])
         before_volume_list_high, part_of_tracks, angle_F_high = fft2midi(
             angel_F_prev=angle_F_high, F=ffted_data_high,
             before_volume_list=before_volume_list_high,
