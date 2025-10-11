@@ -1,7 +1,6 @@
 I am not good at English, so please translate the content from the title if necessary.
 
 ■はじめに, Introduction
-　・ダウンロードして頂き、ありがとうございます。
 　・本ファイルは本プログラムのシステム要件、使い方、注意点などを記載しています。
 　・ご使用の前にご一読ください。
 
@@ -74,14 +73,14 @@ I am not good at English, so please translate the content from the title if nece
 
 
 ■ピッチベンドを無効にする方法, How to disable pitch bend
-  ・プログラムの19行目の「disable_pitch_bend = False」を「disable_pitch_bend = True」に置き換える。
+  ・プログラムの20行目の「disable_pitch_bend = False」を「disable_pitch_bend = True」に置き換える。
 
   ※インターネット上にはピッチベンドを使わないで演奏されているものがあります。それらと同じようにしたい場合は上記のように設定を変更してください。
 
 
 ■軽量化したい場合, When performance is a priority
-　1. プログラムの23行目の「minimum_velocity = 4」を「minimum_velocity = 8」に置き換える。
-  2. プログラムの21行目の「similar_velocity_threshold = 4」を「similar_velocity_threshold = 8」に置き換える。
+　1. プログラムの24行目の「minimum_velocity = 4」を「minimum_velocity = 8」に置き換える。
+  2. プログラムの22行目の「similar_velocity_threshold = 4」を「similar_velocity_threshold = 8」に置き換える。
 
   ※お好みで値は調整してください。
   ※これら操作により音質が低下します。
@@ -94,4 +93,4 @@ I am not good at English, so please translate the content from the title if nece
 
 
 編集:Bistanium
-最終編集日:2025/09/06
+最終編集日:2025/10/11
