@@ -50,7 +50,7 @@ def WrapToPi(phases):
     return (phases + PI) % (2 * PI) - PI
 
 
-def detect_peaks(data, n=3):
+def detect_peaks(data, n=2):
     if len(data) < 2 * n + 1:
         return np.array([], dtype=int)  # データが小さすぎる場合
 
@@ -66,7 +66,7 @@ def detect_peaks(data, n=3):
     return np.where(is_peak)[0] + n
 
 
-def divide_into_regions(data, n=3):
+def divide_into_regions(data, n=2):
     frameSize = len(data)
     peakIndices = detect_peaks(data, n)
 
@@ -125,7 +125,7 @@ def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, a
     sum_volume = 0.0
     amplitude = np.abs(F) / pad_N
 
-    regions, peak_indices = divide_into_regions(amplitude, n=3)
+    regions, peak_indices = divide_into_regions(amplitude, n=2)
 
     # 位相差からより正確な周波数(ノート番号)を得る
     angle_F = np.angle(F)
