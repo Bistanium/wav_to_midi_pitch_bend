@@ -20,7 +20,7 @@ Windows Registry Editor Version 5.00
 "FollowDefaultAudioDevice"=dword:00000000
 "TGTSpeedHack"=hex(b):00,ca,9a,3b,00,00,00,00
 "GetEvBuffSizeFromRAM"=dword:00000000
-"HyperPlayback"=dword:00000001
+"HyperPlayback"=dword:00000000
 "IgnoreNotesBetweenVel"=dword:00000000
 "IgnoreSysEx"=dword:00000000
 "IgnoreSysReset"=dword:00000000
@@ -37,12 +37,12 @@ Windows Registry Editor Version 5.00
 "NoteLengthValue"=dword:00000005
 "NoteOff1"=dword:00000000
 "NotesCatcherWithAudio"=dword:00000000
-"OutputVolume"=dword:00000f81
+"OutputVolume"=dword:00001388
 "PreloadSoundFonts"=dword:00000001
 "ReverbOverride"=dword:00000000
 "ChorusOverride"=dword:00000000
 "Reverb"=dword:00000000
-"SincConv"=dword:00000002
+"SincConv"=dword:00000003
 "SincInter"=dword:00000001
 "StockWinMM"=dword:00000000
 "AudioRampIn"=dword:00000000
