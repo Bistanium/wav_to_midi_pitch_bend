@@ -7,7 +7,6 @@ import tkinter.filedialog
 
 import mido
 import numpy as np
-from numpy.lib.stride_tricks import sliding_window_view
 import resampy
 import scipy
 import soundfile as sf
@@ -50,25 +49,20 @@ def WrapToPi(phases):
     return (phases + PI) % (2 * PI) - PI
 
 
-def detect_peaks(data, n=2):
-    if len(data) < 2 * n + 1:
-        return np.array([], dtype=int)  # データが小さすぎる場合
-
-    # 中心を含めたウィンドウを作成
-    windows = sliding_window_view(data, 2 * n + 1)
-    
-    # 中心のインデックス
-    center = n
-
-    # 中心値が左右の全ての値より大きいかを確認
-    is_peak = np.all(windows[:, center][:, None] > np.delete(windows, center, axis=1), axis=1)
-
-    return np.where(is_peak)[0] + n
+def detect_peaks(data):
+    # data[2:-2]の範囲で±1,±2ずらした配列と比較して高ければピーク
+    cond = (
+        (data[2:-2] > data[0:-4]) &
+        (data[2:-2] > data[1:-3]) &
+        (data[2:-2] > data[3:-1]) &
+        (data[2:-2] > data[4:])
+    )
+    return np.where(cond)[0] + 2
 
 
-def divide_into_regions(data, n=2):
+def divide_into_regions(data):
     frameSize = len(data)
-    peakIndices = detect_peaks(data, n)
+    peakIndices = detect_peaks(data)
 
     numPeaks = len(peakIndices)
     if numPeaks == 0:
@@ -125,7 +119,7 @@ def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, a
     sum_volume = 0.0
     amplitude = np.abs(F) / pad_N
 
-    regions, peak_indices = divide_into_regions(amplitude, n=2)
+    regions, peak_indices = divide_into_regions(amplitude)
 
     # 位相差からより正確な周波数(ノート番号)を得る
     angle_F = np.angle(F)
