@@ -28,8 +28,8 @@ class Settings:
 
 
 class AboutTracks:
-    note_digit = 10
-    number_of_tracks = 10
+    note_digit = 8
+    number_of_tracks = 8
     @classmethod
     def update_settings(cls):
         cls.note_digit = 1
@@ -68,7 +68,7 @@ def divide_into_regions(data):
     if numPeaks == 0:
         return [(0, frameSize)], [np.argmax(data)]
 
-    # 中央で単純分割（中点を境界とする）
+    # 中点を境界とする
     borders = np.empty(numPeaks + 1, dtype=np.int64)
     borders[0] = 0
     borders[-1] = frameSize
@@ -110,7 +110,7 @@ def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, a
     TWELVE_OVER_LOG10_2 = 39.86313713864834817444383315387
     LOG10_440_TIMES_TOL_MINUS_69 = 36.37631656229591524883618971458
 
-    current_volume_list = [0] * 1280
+    current_volume_list = [0] * 1024
     number_of_tracks = AboutTracks.number_of_tracks
     tracks = [[] for _ in range(number_of_tracks)]
     pad_N = N * Settings.pad_multiple
@@ -125,9 +125,9 @@ def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, a
     angle_F = np.angle(F)
     truth_notes = estimate_frequency(angel_F_prev, angle_F, N, pad_N, fs)
 
-    # 境界の±1ぐらいから開始してmidiノート周辺に対応するビンの振幅を拾えるようにする
-    range_start = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (start_note - 69 - 1))
-    range_end = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (end_note - 69 + 1))
+    # 境界の±2ぐらいから開始してmidiノート周辺に対応するビンの振幅を拾えるようにする
+    range_start = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (start_note - 69 - 2))
+    range_end = int(sec * 440 * TWELFTH_ROOT_OF_2 ** (end_note - 69 + 2))
 
     # note_digitは使うトラックの数ともいえる
     note_digit = AboutTracks.note_digit
@@ -158,7 +158,7 @@ def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, a
         round_note = int(note * note_digit + 0.5) / note_digit
 
         # 音が変わったら前の音階をmidiに打ち込む
-        if abs(round_note - before_note) >= 1 / note_digit:
+        if abs(round_note - before_note) >= 1 / (2 * note_digit):
             round_0_note = int(before_note + 0.5)
             if round_0_note <= 127:
                 midi_note_decimal, _ = modf(before_note)
@@ -171,43 +171,40 @@ def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, a
         else:
             sum_volume += volume
 
-
+    # (ここで音量制限をしているせいで元ファイルの音量が小さすぎると問題が発生する。いつか改良する)
     similar_velocity_threshold = Settings.similar_velocity_threshold
     disable_pitch_bend = Settings.disable_pitch_bend
     for i, track in enumerate(tracks):
-        # 0から数えて9つ目は打楽器のため
-        ch = i if i != 9 else 10
         if append_pitch_bend and not disable_pitch_bend:
-            track.append(NoteMessage(type="pitchwheel", note=-1, velocity=-1, channel=ch))
+            track.append(NoteMessage(type="pitchwheel", note=-1, velocity=-1, channel=i))
         for j in range(start_note, end_note):
             note_idx = i * 128 + j
             before_volume = before_volume_list[note_idx]
             current_volume = current_volume_list[note_idx]
 
             # 定数部分が0以上でないとmidiが壊れる
-            is_below_min = current_volume <= 2
+            is_below_min = current_volume <= 0
             # 前回音があったとき
             if before_volume != 0:
                 is_small = current_volume < before_volume - similar_velocity_threshold 
                 is_big = before_volume + similar_velocity_threshold < current_volume
                 # 音量変化が指定した値より大きいとき
                 if is_small or is_big or is_below_min:
-                    track.append(NoteMessage(type="note_off", note=j, velocity=-1, channel=ch))
+                    track.append(NoteMessage(type="note_off", note=j, velocity=-1, channel=i))
                     if not is_below_min:
-                        track.append(NoteMessage(type="note_on", note=j, velocity=current_volume, channel=ch))
+                        track.append(NoteMessage(type="note_on", note=j, velocity=current_volume, channel=i))
                     else:
                         current_volume_list[note_idx] = 0
                 else:
                     current_volume_list[note_idx] = before_volume
             # 閾値超過のとき
             elif not is_below_min:
-                track.append(NoteMessage(type="note_on", note=j, velocity=current_volume, channel=ch))
+                track.append(NoteMessage(type="note_on", note=j, velocity=current_volume, channel=i))
             else:
                 current_volume_list[note_idx] = 0
 
-        # 別関数として分けるか考え中
         if next_time:
-            track.append(NoteMessage(type="next_time", note=-1, velocity=-1, channel=ch))
+            track.append(NoteMessage(type="next_time", note=-1, velocity=-1, channel=i))
 
     return current_volume_list, tracks, angle_F
 
@@ -384,76 +381,74 @@ def normalize_velocity(tracks):
 
 def create_all_note_messages(N, fs):
     """
-    1. ノート番号が0から、velocityが0から127まで、ノート番号分作り、それをさらにチャンネル分(9を除く)作る
-    2. ノート番号が0から127まで、チャンネル分(9を除く)作る
-    3. note_offイベントのtimeをチャンネル分(9を除く)作る
-    4. ピッチベンドをチャンネル分(9を除く)作る
+    1. ノート番号が0から、velocityが0から127まで、ノート番号分作り、それをさらにチャンネル分作る
+    2. ノート番号が0から127まで、チャンネル分作る
+    3. note_offイベントのtimeをチャンネル分作る
+    4. ピッチベンドをチャンネル分作る
     """
-    # 1.(163,840) + 2.(1,280) + 3.(10) + 4.(10) = 165,140
-    all_note_messages_list = np.zeros(165140, dtype=object)
+    # 1.(131,072) + 2.(1,024) + 3.(8) + 4.(8) = 132,112
+    all_note_messages_list = np.zeros(132112, dtype=object)
 
     # 1
     start_idx = 0
-    for i in range(10): # channel
-        ch = i if i != 9 else 10
+    for i in range(8): # channel
         for j in range(128): # note number
             for k in range(128): # velocity
                 all_note_messages_list[16384 * i + 128 * j + k] = (
-                    mido.Message("note_on", note=j, velocity=k, channel=ch)
+                    mido.Message("note_on", note=j, velocity=k, channel=i)
                 )
-    start_idx += 163840
+    start_idx += 131072
 
     # 2
-    for i in range(10): # channel
-        ch = i if i != 9 else 10
+    for i in range(8): # channel
         for j in range(128): # note number
             all_note_messages_list[128 * i + j + start_idx] = (
-                mido.Message("note_off", note=j, channel=ch)
+                mido.Message("note_off", note=j, channel=i)
             )
-    start_idx += 1280
+    start_idx += 1024
 
     # 3
     sec = N / fs
     overlap = int(100 / (100 - Settings.overlap_rate) + 0.5)
-    t = int(960 * sec / overlap + 0.5)
-    for i in range(10): # channel
-        ch = i if i != 9 else 10
+    t = int(1920 * sec / overlap + 0.5)
+    for i in range(8): # channel
         all_note_messages_list[i + start_idx] = (
-            mido.Message("note_off", channel=ch, time=t)
+            mido.Message("note_off", channel=i, time=t)
         )
-    start_idx += 10
+    start_idx += 8
 
     # 4
-    for i in range(10): # channel
-        ch = i if i != 9 else 10
-        bend_values = [0, 410, 819, 1229, 1638, -2048, -1638, -1229, -819, -410]
+    for i in range(8): # channel
+        bend_values = [0, 512, 1024, 1536, -2048, -1536, -1024, -512]
         all_note_messages_list[i + start_idx] = (
-            mido.Message("pitchwheel", channel=ch, pitch=bend_values[i])
+            mido.Message("pitchwheel", channel=i, pitch=bend_values[i])
         )
-    start_idx += 10
+    start_idx += 8
 
     return all_note_messages_list
 
 
 def append_tracks(tracks, temp_track, all_note_messages_list):
+    # ここに出てくる数字は上の関数の数字と対応している
     for track in temp_track:
         for note_event in track:
-            track_num = min(note_event.channel, 9)
+            track_num = note_event.channel
             if note_event.type == "note_on":
                 tracks[track_num].append(
                     all_note_messages_list[16384 * track_num + 128 * note_event.note + note_event.velocity]
                 )
             elif note_event.type == "note_off":
                 tracks[track_num].append(
-                    all_note_messages_list[128 * track_num + note_event.note + 163840]
+                    # 131072はnote_onメッセージすべての合計数
+                    all_note_messages_list[128 * track_num + note_event.note + 131072]
                 )
             elif note_event.type == "next_time":
                 tracks[track_num].append(
-                    all_note_messages_list[track_num + 165120]
+                    all_note_messages_list[track_num + 132096]
                 )
             elif note_event.type == "pitchwheel":
                 tracks[track_num].append(
-                    all_note_messages_list[track_num + 165130]
+                    all_note_messages_list[track_num + 132104]
                 )
 
 
@@ -484,19 +479,19 @@ def main():
     resampled_data_list = resampling_n(new_data, fs, new_fs_list)
 
     # オーディオ分割
-    window_size_high = 2048
-    window_size_mid = 1024      # 時間分解能がhighの1/2
-    window_size_low = 128       # 時間分解能がhighの1/4
+    window_size_high = 1024
+    window_size_mid = 512     # 時間分解能がhighの1/2
+    window_size_low = 64      # 時間分解能がhighの1/4
     window_size_list = (window_size_high, window_size_mid, window_size_low)
     segment_data_list = audio_split_n(resampled_data_list, window_size_list)
     segments_data_high, segments_data_mid, segments_data_low = segment_data_list
 
-    del data, resampled_data_list, segment_data_list
+    del data, new_data, resampled_data_list, segment_data_list
 
     # 変換の準備
-    before_volume_list_high = [0] * 1280
-    before_volume_list_mid = [0] * 1280
-    before_volume_list_low = [0] * 1280
+    before_volume_list_high = [0] * 1024
+    before_volume_list_mid = [0] * 1024
+    before_volume_list_low = [0] * 1024
     # loopの長さ
     segments_data_range = len(segments_data_low) * 4
     
