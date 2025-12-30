@@ -2,9 +2,18 @@
 
 [https://github.com/Bistanium/wav_to_midi_pitch_bend](https://github.com/Bistanium/wav_to_midi_pitch_bend)
 
-Convert WAV to MIDI using Fourier transform
+<table>
+	<thead>
+    	<tr>
+      		<th style="text-align:center"><a href="README.md">English</a></th>
+			    <th style="text-align:center">日本語</th>
+    	</tr>
+  	</thead>
+</table>
 
-## Required Libraries
+フーリエ変換を使ってwavファイルをmidiファイルに変換します。
+
+## 必要なライブラリ
 | Library   | Version |
 |-----------|---------|
 | mido      | 1.3.3   |
@@ -14,21 +23,24 @@ Convert WAV to MIDI using Fourier transform
 | soundfile | 0.13.1  |
 | tqdm      | 4.67.1  |
 
-## How to Use
-1. Run the `start.bat` file.
-2. Select a wav file (any file you want to process).
-3. Wait for the process to finish.
-4. Play the generated MIDI file using a lightweight MIDI player.
+## 使い方
+1. `start.bat` を実行します。
+2. 処理したいwavファイルを選択します。
+3. しばらく待ちます。
+4. できたmidiファイルを軽量なmidiプレイヤーで再生します。
 
-## Optional Settings
-At the top of the code, there are several configuration options that users may freely adjust depending on their purpose.
+## 注意
+- midiを再生するときは付属の正弦波サウンドフォントを使ってください。
 
-### How to Disable Pitch Bend
-- On line 19 of the program, change `disable_pitch_bend = False` to `disable_pitch_bend = True`.
-> Some performances available on the internet are played without using pitch bend. If you want the output to behave similarly, please enable this setting.
+## オプション
+このプログラムにはユーザの目的に応じてコードを変更できる場所があります。
 
-### How to Reduce Processing Load (Lightweight Mode)
-If you want to reduce processing load, you can adjust the following parameters:
-- On line 23, change `minimum_velocity = 4` to `minimum_velocity = 8`.
-- On line 21, change `similar_velocity_threshold = 4` to `similar_velocity_threshold = 8`.
-> You may adjust these values to your preference. Please note that increasing these values may reduce sound quality.
+### ピッチベンドを無効にする方法
+- 19行目の `disable_pitch_bend = False` を `disable_pitch_bend = True` に変更します。
+> インターネット上にはピッチベンドを使わないで演奏されているものがあります。それらと同じようにしたい場合はこのように設定を変更してください。
+
+### 軽量化したい場合
+再生時の負荷を軽減したい場合は次のように変更してください。
+- 23行目の `minimum_velocity = 4` を `minimum_velocity = 8` に変更します。
+- 21行目の `similar_velocity_threshold = 4` を `similar_velocity_threshold = 8` に変更します。
+> これらの値は好みに合わせて調整してください。ただし、値を大きくすると音質の低下を感じるかもしれません。
