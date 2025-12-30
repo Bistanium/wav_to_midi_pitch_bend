@@ -2,6 +2,15 @@
 
 [https://github.com/Bistanium/wav_to_midi_pitch_bend](https://github.com/Bistanium/wav_to_midi_pitch_bend)
 
+<table>
+	<thead>
+    	<tr>
+      		<th style="text-align:center">English</th>
+      		<th style="text-align:center"><a href="README_ja.md">日本語</a></th>
+    	</tr>
+  	</thead>
+</table>
+
 Convert WAV to MIDI using Fourier transform
 
 ## Required Libraries
@@ -19,6 +28,9 @@ Convert WAV to MIDI using Fourier transform
 2. Select a wav file (any file you want to process).
 3. Wait for the process to finish.
 4. Play the generated MIDI file using a lightweight MIDI player.
+
+## Note
+- Please use the included sine wave soundfont when playing the MIDI file.
 
 ## Optional Settings
 At the top of the code, there are several configuration options that users may freely adjust depending on their purpose.
