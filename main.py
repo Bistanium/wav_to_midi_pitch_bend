@@ -106,9 +106,9 @@ def estimate_frequency(theta_prev, theta, N, pad_N, fs):
 # midi化関数
 def fft2midi(angel_F_prev, F, before_volume_list, fs, N, start_note, end_note, append_pitch_bend, next_time):
 
-    TWELFTH_ROOT_OF_2 = 1.059463094359295264561825294946
-    TWELVE_OVER_LOG10_2 = 39.86313713864834817444383315387
-    LOG10_440_TIMES_TOL_MINUS_69 = 36.37631656229591524883618971458
+    TWELFTH_ROOT_OF_2 = 1.059463094359295264561825294946             # 2^(1/12)
+    TWELVE_OVER_LOG10_2 = 39.86313713864834817444383315387           # 12/log10(2)
+    LOG10_440_TIMES_TOL_MINUS_69 = 36.37631656229591524883618971458  # 12*log10(440)/log10(2)*12-69
 
     current_volume_list = [0] * 1024
     number_of_tracks = AboutTracks.number_of_tracks
@@ -271,22 +271,17 @@ def definition_midi():
     return mid, tracks
 
 
-# リサンプリング
-def resampling(data, fs, target_fs, amp):
-    data = data / amp
+def resampling(data, fs, target_fs):
     # リサンプリング
     return resampy.resample(data, sr_orig=fs, sr_new=target_fs, filter='sinc_window', num_zeros=32)
 
 
 def resampling_n(data, fs, new_fs_list):
     resampled_data_list = []
-    # リサンプリングによって-1~1に波形が収まらない可能性を考慮
-    # minの方は+1をしておかないとエラーになる場合がある
-    amp = max(max(data), -(min(data) + 1)) * 1.05
     # ループは波形の分割数
     for i in range(len(new_fs_list)):
         resampled_data_list.append(
-            resampling(data, fs, new_fs_list[i], amp)
+            resampling(data, fs, new_fs_list[i])
         )
 
     return resampled_data_list
@@ -300,7 +295,7 @@ def convert_16_bit(data):
 
     return data.astype(np.int16)
 
-    
+
 # オーディオ分割
 def audio_split(data, win_size):
     padded_data = data
@@ -468,6 +463,9 @@ def main():
 
     # 最後の方まで音があるとmidiで音が残ったままになるため
     new_data = np.pad(data, (20480, 20480), mode='constant', constant_values=0)
+
+    # 音量を-1~1に正規化しておく
+    new_data = new_data / max(abs(new_data))
 
     print("\n再サンプリング&データ分割中…… (1/5)\n")
 
