@@ -13,8 +13,7 @@ import scipy
 import soundfile as sf
 from tqdm import tqdm
 
-
-# 設定ゾーン  不正な入力のチェックはしていないから注意
+# 設定ゾーン  不正な入力のチェックはしていないので注意
 class Settings:
     # ピッチベンドを無効にするか
     disable_pitch_bend = False
