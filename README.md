@@ -36,11 +36,11 @@ Convert WAV to MIDI using Fourier transform
 At the top of the code, there are several configuration options that users may freely adjust depending on their purpose.
 
 ### How to Disable Pitch Bend
-- On line 19 of the program, change `disable_pitch_bend = False` to `disable_pitch_bend = True`.
+- On line 21 of the program, change `disable_pitch_bend = False` to `disable_pitch_bend = True`.
 > Some performances available on the internet are played without using pitch bend. If you want the output to behave similarly, please enable this setting.
 
 ### How to Reduce Processing Load (Lightweight Mode)
 If you want to reduce processing load, you can adjust the following parameters:
-- On line 23, change `minimum_velocity = 4` to `minimum_velocity = 8`.
-- On line 21, change `similar_velocity_threshold = 4` to `similar_velocity_threshold = 8`.
+- On line 25, change `minimum_velocity = 4` to `minimum_velocity = 8`.
+- On line 23, change `similar_velocity_threshold = 4` to `similar_velocity_threshold = 8`.
 > You may adjust these values to your preference. Please note that increasing these values may reduce sound quality.
