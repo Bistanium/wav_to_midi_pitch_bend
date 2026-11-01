@@ -36,11 +36,11 @@
 このプログラムにはユーザの目的に応じてコードを変更できる場所があります。
 
 ### ピッチベンドを無効にする方法
-- 19行目の `disable_pitch_bend = False` を `disable_pitch_bend = True` に変更します。
+- 21行目の `disable_pitch_bend = False` を `disable_pitch_bend = True` に変更します。
 > インターネット上にはピッチベンドを使わないで演奏されているものがあります。それらと同じようにしたい場合はこのように設定を変更してください。
 
 ### 軽量化したい場合
 再生時の負荷を軽減したい場合は次のように変更してください。
-- 23行目の `minimum_velocity = 4` を `minimum_velocity = 8` に変更します。
-- 21行目の `similar_velocity_threshold = 4` を `similar_velocity_threshold = 8` に変更します。
+- 25行目の `minimum_velocity = 4` を `minimum_velocity = 8` に変更します。
+- 23行目の `similar_velocity_threshold = 4` を `similar_velocity_threshold = 8` に変更します。
 > これらの値は好みに合わせて調整してください。ただし、値を大きくすると音質の低下を感じるかもしれません。
