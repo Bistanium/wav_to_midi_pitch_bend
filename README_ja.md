@@ -25,7 +25,9 @@
 ## オプション
 このプログラムにはユーザの目的に応じて設定を変更することができます。
 
-設定の変更は `midi.exe` と同じディレクトリにある `setting.txt` から行えます。
+設定の変更は `midi.exe` と同じディレクトリにある `settings.txt` から行えます。
+
+`settings.txt`が存在しない場合は`midi.exe`を実行することで生成されます。
 
 ### ピッチベンドを無効にする方法
 - `disable_pitch_bend = false` を `disable_pitch_bend = true` に変更します。
