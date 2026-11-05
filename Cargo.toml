@@ -1,6 +1,6 @@
 [package]
 name = "wav2midi"
-version = "0.1.0"
+version = "6.0.2"
 edition = "2024"
 
 [dependencies]
