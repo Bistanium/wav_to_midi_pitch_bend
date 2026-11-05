@@ -25,7 +25,9 @@ Convert WAV to MIDI using Fourier transform
 ## Optional Settings
 You can adjust the settings in this program to suit your needs.
 
-Settings can be modified via the `setting.txt` file, which is located in the same directory as `midi.exe`.
+Settings can be modified via the `settings.txt` file, which is located in the same directory as `midi.exe`.
+
+If `settings.txt` does not exist, it will be generated when you run `midi.exe`.
 
 ### How to Disable Pitch Bend
 - Change `disable_pitch_bend = false` to `disable_pitch_bend = true`.
