@@ -25,7 +25,7 @@ pub fn preparation(setting: &Settings) -> Result<(String, String), Box<dyn std::
     // 拡張子
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
 
-    if ext != "wav" {
+    if !ext.eq_ignore_ascii_case("wav") {
         return Err("Error: wavファイルを入力してください。".into());
     }
 
