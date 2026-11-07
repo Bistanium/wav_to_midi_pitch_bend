@@ -5,7 +5,7 @@ use crate::modules::settings::Settings;
 use crate::modules::wav::load_wav;
 use std::path::Path;
 
-fn get_monoral(left: Vec<f64>, right: Option<Vec<f64>>) -> Vec<f64> {
+fn get_mono(left: Vec<f64>, right: Option<Vec<f64>>) -> Vec<f64> {
     match right {
         Some(s) => left.iter().zip(s.iter()).map(|(l, r)| l + r).collect(),
         None => left,
@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // WAV読み込み
     let (left, right, sample_rate) = load_wav(input_name)?;
-    let mono = get_monoral(left, right);
+    let mono = get_mono(left, right);
 
     // WAVをMIDIに変換して書き出す
     midi_from_wav(mono, sample_rate, output_name, &settings);
