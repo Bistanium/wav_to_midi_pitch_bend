@@ -14,7 +14,7 @@
 Convert WAV to MIDI using Fourier transform
 
 ## How to Use
-1. Run the `midi.exe` file.
+1. Run the `wav2midi.exe` file.
 2. Select a wav file (any file you want to process).
 3. Wait for the process to finish.
 4. Play the generated MIDI file using a lightweight MIDI player.
@@ -25,9 +25,9 @@ Convert WAV to MIDI using Fourier transform
 ## Optional Settings
 You can adjust the settings in this program to suit your needs.
 
-Settings can be modified via the `settings.txt` file, which is located in the same directory as `midi.exe`.
+Settings can be modified via the `settings.txt` file, which is located in the same directory as `wav2midi.exe`.
 
-If `settings.txt` does not exist, it will be generated when you run `midi.exe`.
+If `settings.txt` does not exist, it will be generated when you run `wav2midi.exe`.
 
 ### How to Disable Pitch Bend
 - Change `disable_pitch_bend = false` to `disable_pitch_bend = true`.
@@ -35,6 +35,6 @@ If `settings.txt` does not exist, it will be generated when you run `midi.exe`.
 
 ### How to Reduce Processing Load (Lightweight Mode)
 If you want to reduce processing load, you can adjust the following parameters:
-- Change `minimum_velocity = 4` to `minimum_velocity = 8`.
+- Change `minimum_velocity = 2` to `minimum_velocity = 8`.
 - Change `similar_velocity_threshold = 4` to `similar_velocity_threshold = 8`.
 > You may adjust these values to your preference. Please note that increasing these values may reduce sound quality.
