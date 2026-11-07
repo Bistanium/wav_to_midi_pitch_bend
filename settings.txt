@@ -1,10 +1,19 @@
-# ピッチベンドを無効にするか ( true / false )
+# ピッチベンドを無効にするか (true / false)
 disable_pitch_bend = false
-# 近い音量のノートを繋げる ( Integers from 0 to 64 inclusive )
+
+# 近い音量のノートを繋げる (Integers from 0 to 64 inclusive)
 similar_velocity_threshold = 4
-# velocityの最小値 ( Integers from 0 to 127 inclusive )
-minimum_velocity = 4
-# 0埋め倍数 ( Integers from 1 to 16 inclusive )
+# velocityの最小値 (Integers from 0 to 127 inclusive)
+minimum_velocity = 2
+
+# 最終的な音量を増減させる (Numbers from 0.0 to 2.0 inclusive)
+gain = 1
+# 下限をノート番号で指定 (Integers from 12 to 128 inclusive)
+start_note = 36
+# 上限をノート番号で指定 (Integers from 12 to 128 inclusive)
+end_note = 128
+
+# 0埋め倍数 (Integers from 1 to 8 inclusive)
 pad_multiple = 2
-# 使用するトラックの数 ( Even integers from 2 to 14, inclusive )
+# 使用するトラックの数 (Even integers from 2 to 14, inclusive)
 number_of_tracks = 8
