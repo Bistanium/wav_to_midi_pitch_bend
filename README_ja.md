@@ -1,4 +1,4 @@
-# WAV to MIDI Converter in Python
+# WAV to MIDI Converter
 
 [https://github.com/Bistanium/wav_to_midi_pitch_bend](https://github.com/Bistanium/wav_to_midi_pitch_bend)
 
