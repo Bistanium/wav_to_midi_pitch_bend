@@ -15,7 +15,7 @@ Convert WAV to MIDI using Fourier transform
 
 ## How to Use
 1. Run the `wav2midi.exe` file.
-2. Select a WAV file (any file you want to process).
+2. Select a WAV file.
 3. Wait for the process to finish.
 4. Play the generated MIDI file using a lightweight MIDI player.
 
