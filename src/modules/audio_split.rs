@@ -1,11 +1,11 @@
-use super::math::{hann_window, pad};
+use super::math::hann_window;
 
 pub struct AudioSplit {
+    buffer: Vec<f64>,
     win: Vec<f64>,
     win_size: usize,
     hop_size: usize,
-    pad_size: usize,
-    center: usize,
+    center: isize,
     current_frame: usize,
 }
 
@@ -13,35 +13,46 @@ impl AudioSplit {
     pub fn new(win_size: usize, hop_size: usize, pad_multiple: usize) -> Self {
         let win = hann_window(win_size);
 
-        let pad_size = win_size * (pad_multiple - 1);
-        let center = win_size / 2;
+        let center = (win_size / 2) as isize;
         Self {
+            buffer: vec![0.0; win_size * pad_multiple],
             win,
             win_size,
             hop_size,
-            pad_size,
             center,
             current_frame: 0,
         }
     }
 
     // オーディオ分割
-    pub fn audio_split(&mut self, data: &[f64]) -> Vec<f64> {
+    pub fn audio_split(&mut self, data: &[f64]) -> &[f64] {
         // 複数窓間の同期に必要
-        let start = (self.current_frame * self.hop_size) as i32 - self.center as i32;
-        let end = start + self.win_size as i32;
+        let pos = isize::try_from(
+            self.current_frame
+                .checked_mul(self.hop_size)
+                .expect("usize multiplication overflow"),
+        )
+        .expect("isize conversion overflow");
+        let start = pos - self.center;
+        let end = start
+            .checked_add(self.win_size as isize)
+            .expect("isize addition overflow");
+        let end = end as usize;
         self.current_frame += 1;
-        // 範囲外を含むデータは捨てる
-        let segment = if start < 0 || (data.len() as i32) < end {
-            vec![0.0; self.win_size]
-        } else {
-            data[start as usize..end as usize]
-                .iter()
+        // 範囲外を含むデータは捨てる(事前にパディングしてあるため)
+        if 0 <= start && end <= data.len() {
+            let start = start as usize;
+            for ((b, d), w) in self.buffer[..self.win_size]
+                .iter_mut()
+                .zip(data[start..end].iter())
                 .zip(self.win.iter())
-                .map(|(x, w)| x * w)
-                .collect()
-        };
-        
-        pad(segment, 0, self.pad_size as i32)
+            {
+                *b = d * w;
+            }
+        } else {
+            self.buffer.fill(0.0);
+        }
+
+        &self.buffer
     }
 }

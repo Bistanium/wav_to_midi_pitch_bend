@@ -102,18 +102,18 @@ pub fn midi_from_wav(data: Vec<f64>, sr: u32, output_name: String, settings: &Se
             pb.inc(1);
             if i % 4 == 0 {
                 let temp_seg = split_low.audio_split(&resampled_data[2]);
-                let ffted_data = low_fft.fft(&temp_seg);
+                let ffted_data = low_fft.fft(temp_seg);
                 f2m_low.convert(ffted_data);
             }
 
             if i % 2 == 0 {
                 let temp_seg = split_mid.audio_split(&resampled_data[1]);
-                let ffted_data = mid_fft.fft(&temp_seg);
+                let ffted_data = mid_fft.fft(temp_seg);
                 f2m_mid.convert(ffted_data);
             }
 
             let temp_seg = split_high.audio_split(&resampled_data[0]);
-            let ffted_data = high_fft.fft(&temp_seg);
+            let ffted_data = high_fft.fft(temp_seg);
             f2m_high.convert(ffted_data);
         }
         pb.finish_with_message("Conversion to MIDI complete");

@@ -151,7 +151,7 @@ impl<'a> Midi<'a> {
                 // 前回音がなかったとき
                 if before_velocity == 0 {
                     // 今回は音があったとき
-                    if current_velocity > min_velocity {
+                    if min_velocity < current_velocity {
                         self.push("note_on", i, j, current_velocity, 0);
                     } else {
                         f2m.set_temp_track(frame, idx, 0.0);
@@ -161,7 +161,7 @@ impl<'a> Midi<'a> {
                     let is_biger = before_velocity + similar_velocity_threshold < current_velocity;
                     if is_smaller || is_biger || current_velocity <= min_velocity {
                         self.push("note_off", i, j, 0, 0);
-                        if current_velocity > min_velocity {
+                        if min_velocity < current_velocity {
                             self.push("note_on", i, j, current_velocity, 0);
                         } else {
                             f2m.set_temp_track(frame, idx, 0.0);
