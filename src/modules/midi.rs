@@ -144,7 +144,9 @@ impl<'a> Midi<'a> {
 
                 let before_velocity = f2m.get_temp_track()[frame - 1][idx];
                 let before_velocity = before_velocity.round() as u32;
-                let current_velocity = (f2m.get_temp_track()[frame][idx] * self.normalize * gain).sqrt();
+
+                let current_velocity =
+                    (f2m.get_temp_track()[frame][idx] * self.normalize * gain).sqrt();
                 f2m.set_temp_track(frame, idx, current_velocity);
                 let current_velocity = current_velocity.round() as u32;
 
@@ -157,7 +159,8 @@ impl<'a> Midi<'a> {
                         f2m.set_temp_track(frame, idx, 0.0);
                     }
                 } else {
-                    let is_smaller = current_velocity + similar_velocity_threshold < before_velocity;
+                    let is_smaller =
+                        current_velocity + similar_velocity_threshold < before_velocity;
                     let is_biger = before_velocity + similar_velocity_threshold < current_velocity;
                     if is_smaller || is_biger || current_velocity <= min_velocity {
                         self.push("note_off", i, j, 0, 0);

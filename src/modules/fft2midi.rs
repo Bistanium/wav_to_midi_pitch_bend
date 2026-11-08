@@ -50,7 +50,7 @@ impl Fft2midi {
 
         // temp_trackのサイズを削減する
         let notes_range = end_note - start_note;
-        
+
         let sec = win_size as f64 / sr as f64;
         // 開始ビン±8から開始してmidiノート周辺に対応するビンの振幅を拾えるようにする
         let range_start = (sec * 440.0 * TWELFTH_ROOT_OF_2.powi(start_note as i32 - 69) - 8.0) as usize;

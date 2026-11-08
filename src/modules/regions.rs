@@ -60,10 +60,7 @@ impl Regions {
         }
     }
 
-    pub fn divide_into_regions(
-        &mut self,
-        data: &[f64],
-    ) -> (&[[usize; 2]], &[usize]) {
+    pub fn divide_into_regions(&mut self, data: &[f64]) -> (&[[usize; 2]], &[usize]) {
         self.detect_peaks(data);
 
         let num_peaks = self.peaks.len();
