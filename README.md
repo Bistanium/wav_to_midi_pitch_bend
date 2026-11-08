@@ -34,7 +34,7 @@ If `settings.txt` does not exist, it will be generated when you run `wav2midi.ex
 > Some performances available on the internet are played without using pitch bend. If you want the output to behave similarly, please enable this setting.
 
 ### How to Reduce Processing Load (Lightweight Mode)
-If you want to reduce processing load, you can adjust the following parameters:
+If you wish to reduce the load during MIDI playback, you can adjust the following parameters.:
 - Change `minimum_velocity = 2` to `minimum_velocity = 8`.
 - Change `similar_velocity_threshold = 4` to `similar_velocity_threshold = 8`.
 > You may adjust these values to your preference. Please note that increasing these values may reduce sound quality.
