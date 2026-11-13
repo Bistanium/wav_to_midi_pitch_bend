@@ -4,15 +4,16 @@ version = "6.0.3"
 edition = "2024"
 
 [dependencies]
-midly = "0.5.3"
+clap = { version = "4.6.7", features = ["derive"] }
 hound = "3.5.1"
-rustfft = "6.4.1"
-realfft = "3.5.1"
-num-complex = "0.4.6"
-symphonia = { version = "0.6.1", features = ["wav"] }
-rubato = "5.0.1"
-rfd = "0.17.2"
 indicatif = "0.18.6"
+midly = "0.5.3"
+num-complex = "0.4.6"
+realfft = "3.5.1"
+rfd = "0.17.2"
+rubato = "5.0.1"
+rustfft = "6.4.1"
+symphonia = { version = "0.6.1", features = ["wav"] }
 
 [profile.release]
 opt-level = 3
