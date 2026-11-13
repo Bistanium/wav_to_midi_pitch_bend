@@ -1,0 +1,7 @@
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C", "link-arg=/Brepro",
+    "--remap-path-prefix",
+    # Replace USERNAME with your Windows username.
+    "C:\\Users\\USERNAME=~"
+]

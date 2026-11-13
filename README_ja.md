@@ -38,3 +38,10 @@
 - `minimum_velocity = 2` を `minimum_velocity = 8` に変更します。
 - `similar_velocity_threshold = 4` を `similar_velocity_threshold = 8` に変更します。
 > これらの値は好みに合わせて調整してください。ただし、値を大きくすると音質の低下を感じるかもしれません。
+
+## ソースコードからのビルド
+ビルドする前に、.cargo/config.toml 内の USERNAME を自身のWindowsユーザー名に置き換えてください。
+その後、以下のコマンドを実行してください。
+```bash
+cargo build --release
+```

@@ -38,3 +38,10 @@ If you wish to reduce the load during MIDI playback, you can adjust the followin
 - Change `minimum_velocity = 2` to `minimum_velocity = 8`.
 - Change `similar_velocity_threshold = 4` to `similar_velocity_threshold = 8`.
 > You may adjust these values to your preference. Please note that increasing these values may reduce sound quality.
+
+## Building from Source
+Before building, replace `USERNAME` in `.cargo/config.toml` with your Windows username.
+Then run:
+```bash
+cargo build --release
+```
