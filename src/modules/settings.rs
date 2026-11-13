@@ -60,7 +60,7 @@ impl Settings {
             Ok(content) => content,
             // ファイルが存在しない場合
             Err(e) if e.kind() == ErrorKind::NotFound => {
-                eprintln!("設定ファイルが存在しません: {}", path);
+                eprintln!("設定ファイルが存在しません");
 
                 // タブが不要なので削除する
                 let default_config = DEFAULT_CONFIG
@@ -70,7 +70,7 @@ impl Settings {
                     .join("\n");
                 match fs::write(path, default_config) {
                     Ok(()) => {
-                        println!("設定ファイルを作成しました");
+                        println!("設定ファイルを作成しました: {}", path);
                     }
                     Err(e) => {
                         eprintln!("設定ファイルを作成できません: {}", e);
@@ -213,7 +213,7 @@ impl Settings {
             self.start_note = start_note;
             self.end_note = end_note
         } else {
-            eprintln!("start_note, end_note: 不正な値です。デフォルト設定を使用します。",);
+            error("start_note, end_note");
         }
     }
 }

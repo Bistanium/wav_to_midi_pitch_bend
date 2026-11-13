@@ -34,8 +34,8 @@ impl<'a> Midi<'a> {
         let step = 4096 / number_of_tracks;
         let pitch_bend_values = generate_bend_values(step);
 
-        // 高周波帯の値を用いて以下の式で計算可能
-        // (1920.0 * sec * hop_size as f64 / win_size as f64).round() as u32
+        // 高域の値を用いて以下の式で計算可能
+        // (1920.0 * hop_size as f64 / sr as f64).round() as u32
         let time = 12;
 
         Self {
@@ -83,7 +83,7 @@ impl<'a> Midi<'a> {
         let note = note.clamp(0, 127) as u8;
         let velocity = velocity.clamp(0, 127) as u8;
         // 2^28-1
-        let time = time.clamp(0, 268435455);
+        let time = time.clamp(0, 268_435_455);
 
         let event = match message {
             "note_on" => TrackEvent {
@@ -133,14 +133,14 @@ impl<'a> Midi<'a> {
         let disable_pitch_bend = self.settings.disable_pitch_bend;
         let gain = self.settings.gain;
 
-        let (start_note, end_note, note_nums) = f2m.get_note_info();
+        let (start_note, end_note, notes_range) = f2m.get_note_info();
 
         for i in 0..self.number_of_tracks {
             if append_pitch_bend && !disable_pitch_bend {
                 self.push("pitchwheel", i, 0, 0, 0);
             }
             for j in start_note..end_note {
-                let idx = i * note_nums + j - start_note;
+                let idx = i * notes_range + j - start_note;
 
                 let before_velocity = f2m.get_temp_track()[frame - 1][idx];
                 let before_velocity = before_velocity.round() as u32;
@@ -159,8 +159,10 @@ impl<'a> Midi<'a> {
                         f2m.set_temp_track(frame, idx, 0.0);
                     }
                 } else {
+                    //　今回の音が前回よりも小さくなりすぎたとき
                     let is_smaller =
                         current_velocity + similar_velocity_threshold < before_velocity;
+                    // 今回の音が前回よりも大きくなりすぎたとき
                     let is_biger = before_velocity + similar_velocity_threshold < current_velocity;
                     if is_smaller || is_biger || current_velocity <= min_velocity {
                         self.push("note_off", i, j, 0, 0);
@@ -184,15 +186,13 @@ impl<'a> Midi<'a> {
 
     pub fn normalize_velocity(
         &mut self,
-        mut low_f2m: Fft2midi,
-        mut mid_f2m: Fft2midi,
-        mut high_f2m: Fft2midi,
+        mut f2m: Vec<Fft2midi>,
         segments_data_range: usize,
     ) {
         // それぞれの最大値を得る
-        let max_velocity_low = get_max_velocity(&low_f2m);
-        let max_velocity_mid = get_max_velocity(&mid_f2m);
-        let max_velocity_high = get_max_velocity(&high_f2m);
+        let max_velocity_low = get_max_velocity(&f2m[0]);
+        let max_velocity_mid = get_max_velocity(&f2m[1]);
+        let max_velocity_high = get_max_velocity(&f2m[2]);
         let max_velocity = max_velocity_low
             .max(max_velocity_mid)
             .max(max_velocity_high);
@@ -204,13 +204,13 @@ impl<'a> Midi<'a> {
         for i in 4..segments_data_range {
             if i % 4 == 0 {
                 let j = i / 4;
-                self.manage_notes(&mut low_f2m, j, false, false);
+                self.manage_notes(&mut f2m[0], j, false, false);
             }
             if i % 2 == 0 {
                 let j = i / 2;
-                self.manage_notes(&mut mid_f2m, j, true, false);
+                self.manage_notes(&mut f2m[1], j, true, false);
             }
-            self.manage_notes(&mut high_f2m, i, false, true);
+            self.manage_notes(&mut f2m[2], i, false, true);
         }
     }
 }

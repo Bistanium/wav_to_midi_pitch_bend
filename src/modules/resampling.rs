@@ -27,10 +27,10 @@ pub fn resample_fft(data: &[f64], orig_sr: u32, target_sr: u32) -> Vec<f64> {
     output.take_data()
 }
 
-pub fn resampling_n(data: Vec<f64>, sr: u32, sr_list: Vec<u32>) -> Vec<Vec<f64>> {
-    let mut resampled_data_list = Vec::with_capacity(sr_list.len());
-    for new_sr in sr_list {
-        resampled_data_list.push(resample_fft(&data, sr, new_sr))
+pub fn resampling_n(data: Vec<f64>, sr: u32, sr_vec: &[u32]) -> Vec<Vec<f64>> {
+    let mut resampled_data_list = Vec::with_capacity(sr_vec.len());
+    for new_sr in sr_vec {
+        resampled_data_list.push(resample_fft(&data, sr, *new_sr))
     }
 
     resampled_data_list

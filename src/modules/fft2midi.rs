@@ -21,7 +21,6 @@ pub struct Fft2midi {
     notes_range: usize,
     range_start: usize,
     range_end: usize,
-    current_frame: usize,
     sr: u32,
 }
 
@@ -73,7 +72,6 @@ impl Fft2midi {
             notes_range,
             range_start,
             range_end,
-            current_frame: 0,
             sr,
         }
     }
@@ -116,7 +114,7 @@ impl Fft2midi {
     }
 
     // ピッチベンド込みの音階とその音量をcurrent_volume_listに書き込む
-    fn write_volume(&mut self, note_value: f64, volume_value: f64) {
+    fn write_volume(&mut self, note_value: f64, volume_value: f64, frame: usize) {
         let round_note = note_value.round() as usize;
         // 範囲外のノートは納められないので除外する
         if (self.start_note..self.end_note).contains(&round_note) {
@@ -124,11 +122,11 @@ impl Fft2midi {
             let track = (decimal * self.number_of_tracks as f64).round() as usize;
             let idx = track * self.notes_range + round_note - self.start_note;
             // 同じ音階に複数回書き込まれたときはそのまま加算する
-            self.temp_track[self.current_frame][idx] += volume_value;
+            self.temp_track[frame][idx] += volume_value;
         }
     }
 
-    pub fn convert(&mut self, fft: &[Complex<f64>]) {
+    pub fn convert(&mut self, fft: &[Complex<f64>], frame: usize) {
         const LOG2_440_TIMES_12_MINUS_69: f64 = 36.37631656229591524883618971458; // 12*log2(440)-69
 
         let mut before_note = 0.0;
@@ -162,7 +160,7 @@ impl Fft2midi {
 
             // 音が変わったら前の音階のデータをVecに書き込む
             if (note - before_note).abs() >= threshold {
-                self.write_volume(before_note, sum_volume);
+                self.write_volume(before_note, sum_volume, frame);
 
                 before_note = note;
                 sum_volume = volume;
@@ -171,10 +169,9 @@ impl Fft2midi {
             }
         }
         // 最後の音階はループ内で書き込まれないのでここで書き込む
-        self.write_volume(before_note, sum_volume);
+        self.write_volume(before_note, sum_volume, frame);
 
         self.phase_prev.copy_from_slice(&self.phase);
-        self.current_frame += 1;
     }
 }
 

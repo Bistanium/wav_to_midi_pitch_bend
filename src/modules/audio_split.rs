@@ -6,7 +6,6 @@ pub struct AudioSplit {
     win_size: usize,
     hop_size: usize,
     center: isize,
-    current_frame: usize,
 }
 
 impl AudioSplit {
@@ -20,16 +19,14 @@ impl AudioSplit {
             win_size,
             hop_size,
             center,
-            current_frame: 0,
         }
     }
 
     // オーディオ分割
-    pub fn audio_split(&mut self, data: &[f64]) -> &[f64] {
+    pub fn audio_split(&mut self, data: &[f64], frame: usize) -> &[f64] {
         // 複数窓間の同期に必要
         let pos = isize::try_from(
-            self.current_frame
-                .checked_mul(self.hop_size)
+            frame.checked_mul(self.hop_size)
                 .expect("usize multiplication overflow"),
         )
         .expect("isize conversion overflow");
@@ -38,7 +35,6 @@ impl AudioSplit {
             .checked_add(self.win_size as isize)
             .expect("isize addition overflow");
         let end = end as usize;
-        self.current_frame += 1;
         // 範囲外を含むデータは捨てる(事前にパディングしてあるため)
         if 0 <= start && end <= data.len() {
             let start = start as usize;
