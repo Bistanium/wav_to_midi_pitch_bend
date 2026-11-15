@@ -1,6 +1,6 @@
 mod modules;
 use crate::modules::midi_from_wav::midi_from_wav;
-use crate::modules::preparation::preparation;
+use crate::modules::select_wav::select_wav;
 use crate::modules::settings::Settings;
 use crate::modules::wav::load_wav;
 use std::path::Path;
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = Settings::load("settings.txt");
 
     // ダイアログ
-    let (input_name, output_name) = preparation(&settings)?;
+    let (input_name, output_name) = select_wav(settings)?;
 
     // 出力ファイル名表示
     show_output_info(&output_name);
@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mono = get_mono(left, right);
 
     // WAVをMIDIに変換して書き出す
-    midi_from_wav(mono, sample_rate, output_name, &settings);
+    midi_from_wav(mono, sample_rate, output_name, settings);
 
     Ok(())
 }

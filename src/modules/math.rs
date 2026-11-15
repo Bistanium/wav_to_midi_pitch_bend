@@ -1,5 +1,6 @@
-use rustfft::num_complex::Complex;
 use std::f64::consts::PI;
+
+use rustfft::num_complex::Complex;
 
 pub fn hann_window(size: usize) -> Vec<f64> {
     let hann_base = 2.0 * PI / (size - 1) as f64;
@@ -25,33 +26,41 @@ pub fn to_mag_phase(spectrum: &[Complex<f64>], mag: &mut [f64], phase: &mut [f64
     }
 }
 
-fn pad_zero(data: Vec<f64>, f_amount: usize, b_amount: usize) -> Vec<f64> {
-    let mut out = Vec::with_capacity(data.len() + f_amount + b_amount);
-    // 前に0を追加
-    out.extend(std::iter::repeat_n(0.0, f_amount));
-    out.extend(data);
-    // 後ろに0を追加
-    out.extend(std::iter::repeat_n(0.0, b_amount));
+pub fn pad(mut data: Vec<f64>, front_amount: i32, back_amount: i32) -> Vec<f64> {
+    // 減らす量が元のデータの長さよりも大きくなるかどうか
+    let front_remove = if front_amount < 0 {
+        front_amount.unsigned_abs() as usize
+    } else {
+        0
+    };
+    let back_remove = if back_amount < 0 {
+        back_amount.unsigned_abs() as usize
+    } else {
+        0
+    };
+    if data.len() <= front_remove + back_remove {
+        eprintln!("Padding is not performed, as the original data would be lost.");
+        return data;
+    }
 
-    out
+    if front_amount > 0 {
+        data.splice(0..0, std::iter::repeat_n(0.0, front_amount as usize));
+    } else if front_amount < 0 {
+        data.drain(..front_remove);
+    }
+
+    if back_amount > 0 {
+        data.resize(data.len() + back_amount as usize, 0.0);
+    } else if back_amount < 0 {
+        data.truncate(data.len() - back_remove);
+    }
+
+    data
 }
 
-pub fn pad(data: Vec<f64>, front_amount: i32, back_amount: i32) -> Vec<f64> {
-    if front_amount >= 0 && back_amount >= 0 {
-        pad_zero(data, front_amount as usize, back_amount as usize)
-    } else if front_amount >= 0 && back_amount < 0 {
-        pad_zero(
-            data[0..(data.len() - (-back_amount) as usize)].to_vec(),
-            front_amount as usize,
-            0,
-        )
-    } else if front_amount < 0 && back_amount >= 0 {
-        pad_zero(
-            data[((-front_amount) as usize)..data.len()].to_vec(),
-            0,
-            back_amount as usize,
-        )
-    } else {
-        data[((-front_amount) as usize)..(data.len() - (-back_amount) as usize)].to_vec()
-    }
+pub fn filter_range(data: &[usize], start: usize, end: usize) -> (usize, usize) {
+    let left = data.partition_point(|&x| x < start);
+    let right = data.partition_point(|&x| x <= end);
+
+    (left, right)
 }

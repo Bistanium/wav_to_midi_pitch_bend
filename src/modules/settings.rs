@@ -24,6 +24,7 @@ const DEFAULT_CONFIG: &str = "\
     number_of_tracks = 8
 ";
 
+#[derive(Debug, Clone, Copy)]
 pub struct Settings {
     pub disable_pitch_bend: bool,
     pub similar_velocity_threshold: u8,

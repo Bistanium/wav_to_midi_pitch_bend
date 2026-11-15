@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use realfft::{RealFftPlanner, RealToComplex};
 use rustfft::num_complex::Complex;
-use std::sync::Arc;
 
 pub struct Fft {
     fft: Arc<dyn RealToComplex<f64>>,

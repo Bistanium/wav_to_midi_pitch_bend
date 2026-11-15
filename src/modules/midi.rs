@@ -1,21 +1,23 @@
-use super::fft2midi::Fft2midi;
-use crate::modules::settings::Settings;
 use midly::{
     Format, Header, MetaMessage, MidiMessage, PitchBend, Smf, Timing, TrackEvent, TrackEventKind,
     num::{u4, u7, u15, u24, u28},
 };
 
-pub struct Midi<'a> {
+use crate::modules::settings::Settings;
+
+use super::midi_from_wav::Track;
+
+pub struct Midi {
     tracks: Vec<Vec<TrackEvent<'static>>>,
     pitch_bend_values: Vec<i16>,
     number_of_tracks: usize,
     time: u32,
     normalize: f64,
-    settings: &'a Settings,
+    settings: Settings,
 }
 
-impl<'a> Midi<'a> {
-    pub fn new(settings: &'a Settings) -> Self {
+impl Midi {
+    pub fn new(settings: Settings) -> Self {
         let number_of_tracks = settings.number_of_tracks;
         let mut tracks = vec![vec![]; number_of_tracks];
 
@@ -123,7 +125,7 @@ impl<'a> Midi<'a> {
 
     fn manage_notes(
         &mut self,
-        f2m: &mut Fft2midi,
+        track: &mut Track,
         frame: usize,
         append_pitch_bend: bool,
         next_time: bool,
@@ -133,7 +135,7 @@ impl<'a> Midi<'a> {
         let disable_pitch_bend = self.settings.disable_pitch_bend;
         let gain = self.settings.gain;
 
-        let (start_note, end_note, notes_range) = f2m.get_note_info();
+        let (start_note, end_note, notes_range) = track.get_note_info();
 
         for i in 0..self.number_of_tracks {
             if append_pitch_bend && !disable_pitch_bend {
@@ -142,12 +144,12 @@ impl<'a> Midi<'a> {
             for j in start_note..end_note {
                 let idx = i * notes_range + j - start_note;
 
-                let before_velocity = f2m.get_temp_track()[frame - 1][idx];
+                let before_velocity = track.get_temp_track()[frame - 1][idx];
                 let before_velocity = before_velocity.round() as u32;
 
                 let current_velocity =
-                    (f2m.get_temp_track()[frame][idx] * self.normalize * gain).sqrt();
-                f2m.set_temp_track(frame, idx, current_velocity);
+                    (track.get_temp_track()[frame][idx] * self.normalize * gain).sqrt();
+                track.set_temp_track(frame, idx, current_velocity);
                 let current_velocity = current_velocity.round() as u32;
 
                 // 前回音がなかったとき
@@ -156,7 +158,7 @@ impl<'a> Midi<'a> {
                     if min_velocity < current_velocity {
                         self.push("note_on", i, j, current_velocity, 0);
                     } else {
-                        f2m.set_temp_track(frame, idx, 0.0);
+                        track.set_temp_track(frame, idx, 0.0);
                     }
                 } else {
                     //　今回の音が前回よりも小さくなりすぎたとき
@@ -169,11 +171,11 @@ impl<'a> Midi<'a> {
                         if min_velocity < current_velocity {
                             self.push("note_on", i, j, current_velocity, 0);
                         } else {
-                            f2m.set_temp_track(frame, idx, 0.0);
+                            track.set_temp_track(frame, idx, 0.0);
                         }
                     } else {
-                        let velocity = f2m.get_temp_track()[frame - 1][idx];
-                        f2m.set_temp_track(frame, idx, velocity);
+                        let velocity = track.get_temp_track()[frame - 1][idx];
+                        track.set_temp_track(frame, idx, velocity);
                     }
                 }
             }
@@ -184,15 +186,11 @@ impl<'a> Midi<'a> {
         }
     }
 
-    pub fn normalize_velocity(
-        &mut self,
-        mut f2m: Vec<Fft2midi>,
-        segments_data_range: usize,
-    ) {
+    pub fn normalize_velocity(&mut self, track: &mut [Track; 3], segments_data_range: usize) {
         // それぞれの最大値を得る
-        let max_velocity_low = get_max_velocity(&f2m[0]);
-        let max_velocity_mid = get_max_velocity(&f2m[1]);
-        let max_velocity_high = get_max_velocity(&f2m[2]);
+        let max_velocity_low = get_max_velocity(&track[0]);
+        let max_velocity_mid = get_max_velocity(&track[1]);
+        let max_velocity_high = get_max_velocity(&track[2]);
         let max_velocity = max_velocity_low
             .max(max_velocity_mid)
             .max(max_velocity_high);
@@ -204,19 +202,20 @@ impl<'a> Midi<'a> {
         for i in 4..segments_data_range {
             if i % 4 == 0 {
                 let j = i / 4;
-                self.manage_notes(&mut f2m[0], j, false, false);
+                self.manage_notes(&mut track[0], j, false, false);
             }
             if i % 2 == 0 {
                 let j = i / 2;
-                self.manage_notes(&mut f2m[1], j, true, false);
+                self.manage_notes(&mut track[1], j, true, false);
             }
-            self.manage_notes(&mut f2m[2], i, false, true);
+            self.manage_notes(&mut track[2], i, false, true);
         }
     }
 }
 
-fn get_max_velocity(f2m: &Fft2midi) -> f64 {
-    f2m.get_temp_track()
+fn get_max_velocity(track: &Track) -> f64 {
+    track
+        .get_temp_track()
         .iter()
         .flatten()
         .copied()
