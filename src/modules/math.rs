@@ -27,7 +27,6 @@ pub fn to_mag_phase(spectrum: &[Complex<f64>], mag: &mut [f64], phase: &mut [f64
 }
 
 pub fn pad(mut data: Vec<f64>, front_amount: i32, back_amount: i32) -> Vec<f64> {
-    // 減らす量が元のデータの長さよりも大きくなるかどうか
     let front_remove = if front_amount < 0 {
         front_amount.unsigned_abs() as usize
     } else {
@@ -38,6 +37,7 @@ pub fn pad(mut data: Vec<f64>, front_amount: i32, back_amount: i32) -> Vec<f64> 
     } else {
         0
     };
+    // 減らす量が元のデータの長さよりも大きくなるかどうか
     if data.len() <= front_remove + back_remove {
         eprintln!("Padding is not performed, as the original data would be lost.");
         return data;

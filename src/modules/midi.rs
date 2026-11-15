@@ -149,6 +149,7 @@ impl Midi {
 
                 let current_velocity =
                     (track.get_temp_track()[frame][idx] * self.normalize * gain).sqrt();
+                // 次のフレームで流用するので更新しておく
                 track.set_temp_track(frame, idx, current_velocity);
                 let current_velocity = current_velocity.round() as u32;
 
@@ -187,13 +188,10 @@ impl Midi {
     }
 
     pub fn normalize_velocity(&mut self, track: &mut [Track; 3], segments_data_range: usize) {
-        // それぞれの最大値を得る
-        let max_velocity_low = get_max_velocity(&track[0]);
-        let max_velocity_mid = get_max_velocity(&track[1]);
-        let max_velocity_high = get_max_velocity(&track[2]);
-        let max_velocity = max_velocity_low
-            .max(max_velocity_mid)
-            .max(max_velocity_high);
+        // それぞれから最大値を得る
+        let max_velocity = get_max_velocity(&track[0])
+            .max(get_max_velocity(&track[1]))
+            .max(get_max_velocity(&track[2]));
 
         // 正規化係数
         self.normalize = 127.0 * 127.0 / max_velocity;
@@ -214,8 +212,7 @@ impl Midi {
 }
 
 fn get_max_velocity(track: &Track) -> f64 {
-    track
-        .get_temp_track()
+    track.get_temp_track()
         .iter()
         .flatten()
         .copied()

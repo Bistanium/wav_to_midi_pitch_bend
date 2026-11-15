@@ -94,13 +94,12 @@ impl Fft2midi {
             *o = 2.0 * PI * i as f64 / win_size as f64;
         }
 
-        // 2.0と2.0が最も結果がよかった
-        let regions = Regions::new(half_win_size, 2.0, 2.0);
+        // 0.5と4.0の結果がよかった
+        let regions = Regions::new(half_win_size, 0.5, 4.0);
 
         let sec = win_size as f64 / sr as f64;
-        // 開始ビン±6から開始してmidiノート周辺に対応するビンの振幅を拾えるようにする
-        let range_start =
-            (sec * 440.0 * TWELFTH_ROOT_OF_2.powi(start_note as i32 - 69) - 6.0) as usize;
+        // 開始ビン±6から開始してノート周辺に対応するビンの振幅を拾えるようにする
+        let range_start = (sec * 440.0 * TWELFTH_ROOT_OF_2.powi(start_note as i32 - 69) - 6.0) as usize;
         let range_end = (sec * 440.0 * TWELFTH_ROOT_OF_2.powi(end_note as i32 - 69) + 6.0) as usize;
 
         Self {
@@ -123,24 +122,22 @@ impl Fft2midi {
         // フレーム間隔
         let delta_t = self.hop_size as f64;
         // フレーム間の周波数の位相の変化と対応する周波数のビンから計算される位相の変化との差
-        let delta_phi = self
-            .phase
+        let delta_phi = self.phase
             .iter()
             .zip(self.phase_prev.iter())
             .zip(self.omega.iter())
             .map(|((p, pp), o)| wrap_to_pi(p - pp - o * delta_t));
         // omegaを補正して位相の変化がより正確になるようにする
-        let true_omega = self
-            .omega
+        let true_omega = self.omega
             .iter()
             .zip(delta_phi)
             .map(|(o, d)| o + d / delta_t);
-        // omegaの式より真の周波数ビンを得る
+        // 真のビンを得る
         let f_bin = true_omega.map(|x| x * self.win_size as f64 / (2.0 * PI));
-        // 周波数ビンを周波数に変換
+        // ビンを周波数に変換
         let frequency = f_bin.map(|x| x / self.win_size as f64 * self.sr as f64);
 
-        // 対数がエラーにならないように
+        // -inf回避
         for (t, f) in self.truth_frequency.iter_mut().zip(frequency) {
             *t = f.max(1.0);
         }
@@ -241,13 +238,13 @@ pub fn midi_from_wav(data: Vec<f64>, sr: u32, output_name: String, settings: Set
             number_of_tracks,
             start_note_low,
             end_note_low,
-            segments_data_range,
+            segments_data_range / 4,
         ),
         Track::new(
             number_of_tracks,
             start_note_mid,
             end_note_mid,
-            segments_data_range,
+            segments_data_range / 2,
         ),
         Track::new(
             number_of_tracks,
