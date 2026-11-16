@@ -11,22 +11,22 @@ pub fn load_wav<P: AsRef<Path>>(path: P) -> Result<WavData, hound::Error> {
         (SampleFormat::Int, 16) => reader
             .samples::<i16>()
             .map(|s| s.map(|v| v as f64 / i16::MAX as f64))
-            .collect::<Result<Vec<f64>, _>>()?,
+            .collect::<Result<Vec<_>, _>>()?,
         (SampleFormat::Int, 24) => {
             const I24MAX: i32 = 8388607;
             reader
                 .samples::<i32>()
                 .map(|s| s.map(|v| v as f64 / I24MAX as f64))
-                .collect::<Result<Vec<f64>, _>>()?
+                .collect::<Result<Vec<_>, _>>()?
         }
         (SampleFormat::Int, 32) => reader
             .samples::<i32>()
             .map(|s| s.map(|v| v as f64 / i32::MAX as f64))
-            .collect::<Result<Vec<f64>, _>>()?,
+            .collect::<Result<Vec<_>, _>>()?,
         (SampleFormat::Float, 32) => reader
             .samples::<f32>()
             .map(|s| s.map(|v| v as f64))
-            .collect::<Result<Vec<f64>, _>>()?,
+            .collect::<Result<Vec<_>, _>>()?,
         _ => return Err(hound::Error::FormatError("Unsupported WAV format")),
     };
 

@@ -187,26 +187,31 @@ impl Midi {
         }
     }
 
-    pub fn normalize_velocity(&mut self, track: &mut [Track; 3], segments_data_range: usize) {
+    pub fn normalize_velocity(&mut self, track: &mut [Track], segments_data_range: usize) {
         // それぞれから最大値を得る
         let max_velocity = get_max_velocity(&track[0])
             .max(get_max_velocity(&track[1]))
-            .max(get_max_velocity(&track[2]));
+            .max(get_max_velocity(&track[2]))
+            .max(get_max_velocity(&track[3]));
 
         // 正規化係数
         self.normalize = 127.0 * 127.0 / max_velocity;
 
         // Velocity変化等考慮してMIDIへ書き込む
-        for i in 4..segments_data_range {
+        for i in 8..segments_data_range {
+            if i % 8 == 0 {
+                let j = i / 8;
+                self.manage_notes(&mut track[0], j, false, false);
+            }
             if i % 4 == 0 {
                 let j = i / 4;
-                self.manage_notes(&mut track[0], j, false, false);
+                self.manage_notes(&mut track[1], j, false, false);
             }
             if i % 2 == 0 {
                 let j = i / 2;
-                self.manage_notes(&mut track[1], j, true, false);
+                self.manage_notes(&mut track[2], j, true, false);
             }
-            self.manage_notes(&mut track[2], i, false, true);
+            self.manage_notes(&mut track[3], i, false, true);
         }
     }
 }

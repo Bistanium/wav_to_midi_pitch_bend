@@ -9,10 +9,10 @@ pub fn resample_fft(data: &[f64], orig_sr: u32, target_sr: u32) -> Vec<f64> {
         InterleavedSlice::new(data, 1, data.len()).expect("Invalid input buffer dimensions");
 
     // FFT resamplerの作成
-    let mut resampler = Fft::<f64>::new(
+    let mut resampler = Fft::new(
         orig_sr as usize,
         target_sr as usize,
-        4096,
+        8192,
         1,
         FixedSync::Both,
     )

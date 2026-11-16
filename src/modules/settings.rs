@@ -14,7 +14,7 @@ const DEFAULT_CONFIG: &str = "\
     # 最終的な音量を増減させる (Numbers from 0.0 to 2.0 inclusive)
     gain = 1
     # 下限をノート番号で指定 (Integers from 12 to 128 inclusive)
-    start_note = 36
+    start_note = 24
     # 上限をノート番号で指定 (Integers from 12 to 128 inclusive)
     end_note = 128
 
@@ -44,7 +44,7 @@ impl Settings {
             similar_velocity_threshold: 4,
             minimum_velocity: 4,
             gain: 1.0,
-            start_note: 36,
+            start_note: 24,
             end_note: 128,
             pad_multiple: 2,
             number_of_tracks: 8,

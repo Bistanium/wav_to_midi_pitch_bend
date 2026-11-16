@@ -122,13 +122,15 @@ impl Fft2midi {
         // フレーム間隔
         let delta_t = self.hop_size as f64;
         // フレーム間の周波数の位相の変化と対応する周波数のビンから計算される位相の変化との差
-        let delta_phi = self.phase
+        let delta_phi = self
+            .phase
             .iter()
             .zip(self.phase_prev.iter())
             .zip(self.omega.iter())
             .map(|((p, pp), o)| wrap_to_pi(p - pp - o * delta_t));
         // omegaを補正して位相の変化がより正確になるようにする
-        let true_omega = self.omega
+        let true_omega = self
+            .omega
             .iter()
             .zip(delta_phi)
             .map(|(o, d)| o + d / delta_t);
@@ -194,17 +196,53 @@ impl Fft2midi {
 }
 
 pub fn midi_from_wav(data: Vec<f64>, sr: u32, output_name: String, settings: Settings) {
-    // high: 0.25s, mid: 0.5s, low: 1s
-    let window_size = [128, 512, 1024];
-    let sr_vec = [1280, 10240, 40960];
+    // 0: 0.2s, 1: 0.1s, 2: 0.05s, 3: 0.025s
+    let window_size = [128, 256, 512, 1024];
+    let sr_vec = [640, 2560, 10240, 40960];
+
+    let start_note = settings.start_note as usize;
+    let end_note = settings.end_note as usize;
+    // 境界値に収める
+    let start_notes = [
+        start_note.clamp(12, 60),
+        start_note.clamp(60, 84),
+        start_note.clamp(84, 108),
+        start_note.clamp(108, 128),
+    ];
+    let end_notes = [
+        end_note.clamp(12, 60),
+        end_note.clamp(60, 84),
+        end_note.clamp(84, 108),
+        end_note.clamp(108, 128),
+    ];
+
+    assert!(
+        window_size.len() == sr_vec.len()
+            && window_size.len() == start_notes.len()
+            && window_size.len() == end_notes.len(),
+        "slice lengths do not match"
+    );
+
+    let rate = [
+        40 * window_size[0] / sr_vec[0] as usize,
+        40 * window_size[1] / sr_vec[1] as usize,
+        40 * window_size[2] / sr_vec[2] as usize,
+        40 * window_size[3] / sr_vec[3] as usize,
+    ];
 
     let pad_multiple = settings.pad_multiple;
     let pad_window_size = [
         window_size[0] * pad_multiple,
         window_size[1] * pad_multiple,
         window_size[2] * pad_multiple,
+        window_size[3] * pad_multiple,
     ];
-    let hop_size = [window_size[0] / 4, window_size[1] / 4, window_size[2] / 4];
+    let hop_size = [
+        window_size[0] / 4,
+        window_size[1] / 4,
+        window_size[2] / 4,
+        window_size[3] / 4,
+    ];
 
     let resampled_data = {
         // 最後の方まで音があるとmidiで音が残ったままになるため余白を設ける
@@ -218,39 +256,36 @@ pub fn midi_from_wav(data: Vec<f64>, sr: u32, output_name: String, settings: Set
 
     // 端数で各配列の長さがずれてもIndexErrorにならないように一番短いものに合わせる
     // 共通の*4はオーバーラップによるもの
-    let segments_data_range = ((resampled_data[0].len() / window_size[0] - 1) * 4 * 4)
-        .min((resampled_data[1].len() / window_size[1] - 1) * 4 * 2)
-        .min((resampled_data[2].len() / window_size[2] - 1) * 4);
-
-    let start_note = settings.start_note as usize;
-    let end_note = settings.end_note as usize;
-    // 境界値に収める
-    let start_note_low = start_note.clamp(12, 60);
-    let end_note_low = end_note.clamp(12, 60);
-    let start_note_mid = start_note.clamp(60, 108);
-    let end_note_mid = end_note.clamp(60, 108);
-    let start_note_high = start_note.clamp(108, 128);
-    let end_note_high = end_note.clamp(108, 128);
+    let segments_data_range = ((resampled_data[0].len() / window_size[0] - 1) * 4 * rate[0])
+        .min((resampled_data[1].len() / window_size[1] - 1) * 4 * rate[1])
+        .min((resampled_data[2].len() / window_size[2] - 1) * 4 * rate[2])
+        .min((resampled_data[3].len() / window_size[3] - 1) * 4 * rate[3]);
 
     let number_of_tracks = settings.number_of_tracks;
     let mut tracks = [
         Track::new(
             number_of_tracks,
-            start_note_low,
-            end_note_low,
-            segments_data_range / 4,
+            start_notes[0],
+            end_notes[0],
+            segments_data_range / rate[0],
         ),
         Track::new(
             number_of_tracks,
-            start_note_mid,
-            end_note_mid,
-            segments_data_range / 2,
+            start_notes[1],
+            end_notes[1],
+            segments_data_range / rate[1],
         ),
         Track::new(
             number_of_tracks,
-            start_note_high,
-            end_note_high,
-            segments_data_range,
+            start_notes[2],
+            end_notes[2],
+            segments_data_range / rate[2],
+        ),
+        Track::new(
+            number_of_tracks,
+            start_notes[3],
+            end_notes[3],
+            segments_data_range / rate[3],
         ),
     ];
 
@@ -260,12 +295,14 @@ pub fn midi_from_wav(data: Vec<f64>, sr: u32, output_name: String, settings: Set
             AudioSplit::new(window_size[0], hop_size[0], pad_multiple),
             AudioSplit::new(window_size[1], hop_size[1], pad_multiple),
             AudioSplit::new(window_size[2], hop_size[2], pad_multiple),
+            AudioSplit::new(window_size[3], hop_size[3], pad_multiple),
         ];
 
         let mut fft = [
             Fft::new(pad_window_size[0]),
             Fft::new(pad_window_size[1]),
             Fft::new(pad_window_size[2]),
+            Fft::new(pad_window_size[3]),
         ];
 
         let mut fft2midi = [
@@ -273,22 +310,29 @@ pub fn midi_from_wav(data: Vec<f64>, sr: u32, output_name: String, settings: Set
                 pad_window_size[0],
                 hop_size[0],
                 sr_vec[0],
-                start_note_low,
-                end_note_low,
+                start_notes[0],
+                end_notes[0],
             ),
             Fft2midi::new(
                 pad_window_size[1],
                 hop_size[1],
                 sr_vec[1],
-                start_note_mid,
-                end_note_mid,
+                start_notes[1],
+                end_notes[1],
             ),
             Fft2midi::new(
                 pad_window_size[2],
                 hop_size[2],
                 sr_vec[2],
-                start_note_high,
-                end_note_high,
+                start_notes[2],
+                end_notes[2],
+            ),
+            Fft2midi::new(
+                pad_window_size[3],
+                hop_size[3],
+                sr_vec[3],
+                start_notes[3],
+                end_notes[3],
             ),
         ];
 
@@ -304,27 +348,32 @@ pub fn midi_from_wav(data: Vec<f64>, sr: u32, output_name: String, settings: Set
 
         println!("Converting to MIDI");
         for i in 0..segments_data_range {
-            pb.inc(1);
-            // 低域
-            if i % 4 == 0 {
-                let j = i / 4;
+            if i % 8 == 0 {
+                let j = i / 8;
                 let seg = split[0].audio_split(&resampled_data[0], j);
                 let fft_seg = fft[0].fft(seg);
                 fft2midi[0].convert(&mut tracks[0], fft_seg, j);
             }
 
-            // 中域
-            if i % 2 == 0 {
-                let j = i / 2;
+            if i % 4 == 0 {
+                let j = i / 4;
                 let seg = split[1].audio_split(&resampled_data[1], j);
                 let fft_seg = fft[1].fft(seg);
                 fft2midi[1].convert(&mut tracks[1], fft_seg, j);
             }
 
-            // 高域
-            let seg = split[2].audio_split(&resampled_data[2], i);
-            let fft_seg = fft[2].fft(seg);
-            fft2midi[2].convert(&mut tracks[2], fft_seg, i);
+            if i % 2 == 0 {
+                let j = i / 2;
+                let seg = split[2].audio_split(&resampled_data[2], j);
+                let fft_seg = fft[2].fft(seg);
+                fft2midi[2].convert(&mut tracks[2], fft_seg, j);
+            }
+
+            let seg = split[3].audio_split(&resampled_data[3], i);
+            let fft_seg = fft[3].fft(seg);
+            fft2midi[3].convert(&mut tracks[3], fft_seg, i);
+
+            pb.inc(1);
         }
         pb.finish_with_message("Conversion to MIDI complete");
     }
