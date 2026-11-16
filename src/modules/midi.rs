@@ -135,22 +135,23 @@ impl Midi {
         let disable_pitch_bend = self.settings.disable_pitch_bend;
         let gain = self.settings.gain;
 
-        let (start_note, end_note, notes_range) = track.get_note_info();
+        let start_note = track.start_note;
+        let end_note = track.end_note;
 
         for i in 0..self.number_of_tracks {
             if append_pitch_bend && !disable_pitch_bend {
                 self.push("pitchwheel", i, 0, 0, 0);
             }
             for j in start_note..end_note {
-                let idx = i * notes_range + j - start_note;
+                let idx = i * (end_note - start_note) + j - start_note;
 
-                let before_velocity = track.get_temp_track()[frame - 1][idx];
+                let before_velocity = track.temp_track[frame - 1][idx];
                 let before_velocity = before_velocity.round() as u32;
 
                 let current_velocity =
-                    (track.get_temp_track()[frame][idx] * self.normalize * gain).sqrt();
+                    (track.temp_track[frame][idx] * self.normalize * gain).sqrt();
                 // 次のフレームで流用するので更新しておく
-                track.set_temp_track(frame, idx, current_velocity);
+                track.temp_track[frame][idx] = current_velocity;
                 let current_velocity = current_velocity.round() as u32;
 
                 // 前回音がなかったとき
@@ -159,7 +160,7 @@ impl Midi {
                     if min_velocity < current_velocity {
                         self.push("note_on", i, j, current_velocity, 0);
                     } else {
-                        track.set_temp_track(frame, idx, 0.0);
+                        track.temp_track[frame][idx] = 0.0;
                     }
                 } else {
                     //　今回の音が前回よりも小さくなりすぎたとき
@@ -172,11 +173,11 @@ impl Midi {
                         if min_velocity < current_velocity {
                             self.push("note_on", i, j, current_velocity, 0);
                         } else {
-                            track.set_temp_track(frame, idx, 0.0);
+                            track.temp_track[frame][idx] = 0.0;
                         }
                     } else {
-                        let velocity = track.get_temp_track()[frame - 1][idx];
-                        track.set_temp_track(frame, idx, velocity);
+                        let velocity = track.temp_track[frame - 1][idx];
+                        track.temp_track[frame][idx] = velocity;
                     }
                 }
             }
@@ -217,7 +218,8 @@ impl Midi {
 }
 
 fn get_max_velocity(track: &Track) -> f64 {
-    track.get_temp_track()
+    track
+        .temp_track
         .iter()
         .flatten()
         .copied()

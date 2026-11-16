@@ -9,7 +9,7 @@ minimum_velocity = 2
 # 最終的な音量を増減させる (Numbers from 0.0 to 2.0 inclusive)
 gain = 1
 # 下限をノート番号で指定 (Integers from 12 to 128 inclusive)
-start_note = 36
+start_note = 24
 # 上限をノート番号で指定 (Integers from 12 to 128 inclusive)
 end_note = 128
 

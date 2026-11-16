@@ -12,11 +12,10 @@ use super::resampling::resampling_n;
 use super::settings::Settings;
 
 pub struct Track {
-    track: Vec<Vec<f64>>,
+    pub temp_track: Vec<Vec<f64>>,
+    pub start_note: usize,
+    pub end_note: usize,
     number_of_tracks: usize,
-    start_note: usize,
-    end_note: usize,
-    notes_range: usize,
 }
 
 impl Track {
@@ -28,24 +27,11 @@ impl Track {
     ) -> Self {
         let notes_range = end_note - start_note;
         Self {
-            track: vec![vec![0.0; number_of_tracks * notes_range]; segments_data_range],
-            number_of_tracks,
+            temp_track: vec![vec![0.0; number_of_tracks * notes_range]; segments_data_range],
             start_note,
             end_note,
-            notes_range,
+            number_of_tracks,
         }
-    }
-
-    pub fn get_temp_track(&self) -> &[Vec<f64>] {
-        &self.track
-    }
-
-    pub fn set_temp_track(&mut self, i: usize, j: usize, value: f64) {
-        self.track[i][j] = value;
-    }
-
-    pub fn get_note_info(&self) -> (usize, usize, usize) {
-        (self.start_note, self.end_note, self.notes_range)
     }
 
     // ピッチベンド込みの音階とその音量をcurrent_volume_listに書き込む
@@ -55,9 +41,9 @@ impl Track {
         if (self.start_note..self.end_note).contains(&round_note) {
             let decimal = note_value.fract();
             let track = (decimal * self.number_of_tracks as f64).round() as usize;
-            let idx = track * self.notes_range + round_note - self.start_note;
+            let idx = track * (self.end_note - self.start_note) + round_note - self.start_note;
             // 同じ音階に複数回書き込まれたときはそのまま加算する
-            self.track[frame][idx] += volume_value;
+            self.temp_track[frame][idx] += volume_value;
         }
     }
 }
@@ -99,7 +85,8 @@ impl Fft2midi {
 
         let sec = win_size as f64 / sr as f64;
         // 開始ビン±6から開始してノート周辺に対応するビンの振幅を拾えるようにする
-        let range_start = (sec * 440.0 * TWELFTH_ROOT_OF_2.powi(start_note as i32 - 69) - 6.0) as usize;
+        let range_start =
+            (sec * 440.0 * TWELFTH_ROOT_OF_2.powi(start_note as i32 - 69) - 6.0) as usize;
         let range_end = (sec * 440.0 * TWELFTH_ROOT_OF_2.powi(end_note as i32 - 69) + 6.0) as usize;
 
         Self {
@@ -150,7 +137,9 @@ impl Fft2midi {
 
         let mut before_note = 0.0;
         let mut sum_volume = 0.0;
-        let number_of_tracks = track.number_of_tracks;
+        let number_of_tracks = track.number_of_tracks as f64;
+        let threshold = 1.0 / (2.0 * number_of_tracks);
+
         to_mag_phase(fft, &mut self.mag, &mut self.phase);
 
         // 位相差から正確な周波数を推定する
@@ -163,7 +152,6 @@ impl Fft2midi {
         let peak_indices = &peak_indices[peak_left..peak_right];
         let regions = &regions[peak_left..peak_right];
 
-        let threshold = 1.0 / (2 * number_of_tracks) as f64;
         for (region, peak_index) in regions.iter().zip(peak_indices) {
             // ピーク周辺の音はピークのものとみなす
             let regions_left = region[0];
@@ -176,7 +164,7 @@ impl Fft2midi {
 
             // ノート番号計算
             let note = 12.0 * self.truth_frequency[*peak_index].log2() - LOG2_440_TIMES_12_MINUS_69;
-            let note = (note * number_of_tracks as f64).round() / number_of_tracks as f64;
+            let note = (note * number_of_tracks).round() / number_of_tracks;
 
             // 音が変わったら前の音階のデータをVecに書き込む
             if (note - before_note).abs() >= threshold {
@@ -203,17 +191,18 @@ pub fn midi_from_wav(data: Vec<f64>, sr: u32, output_name: String, settings: Set
     let start_note = settings.start_note as usize;
     let end_note = settings.end_note as usize;
     // 境界値に収める
+    let bounds = [12, 56, 80, 104, 128];
     let start_notes = [
-        start_note.clamp(12, 60),
-        start_note.clamp(60, 84),
-        start_note.clamp(84, 108),
-        start_note.clamp(108, 128),
+        start_note.clamp(bounds[0], bounds[1]),
+        start_note.clamp(bounds[1], bounds[2]),
+        start_note.clamp(bounds[2], bounds[3]),
+        start_note.clamp(bounds[3], bounds[4]),
     ];
     let end_notes = [
-        end_note.clamp(12, 60),
-        end_note.clamp(60, 84),
-        end_note.clamp(84, 108),
-        end_note.clamp(108, 128),
+        end_note.clamp(bounds[0], bounds[1]),
+        end_note.clamp(bounds[1], bounds[2]),
+        end_note.clamp(bounds[2], bounds[3]),
+        end_note.clamp(bounds[3], bounds[4]),
     ];
 
     assert!(
