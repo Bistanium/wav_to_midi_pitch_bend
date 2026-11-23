@@ -33,8 +33,7 @@ impl Midi {
             kind: TrackEventKind::Meta(MetaMessage::Tempo(u24::new(250_000))),
         });
 
-        let step = 4096 / number_of_tracks;
-        let pitch_bend_values = generate_bend_values(step);
+        let pitch_bend_values = generate_bend_values(number_of_tracks);
 
         // 高域の値を用いて以下の式で計算可能
         // (1920.0 * hop_size as f64 / sr as f64).round() as u32
@@ -53,9 +52,10 @@ impl Midi {
     pub fn export(&mut self, name: String) {
         // 最後にnote_offメッセージがない可能性があるため
         for i in 0..self.number_of_tracks {
-            self.push("note_off", i, 0, 0, self.time);
+            let ch: usize = if i < 9 { i } else { i + 1 };
+            self.push("note_off", ch, 0, 0, self.time);
             for j in 1..128 {
-                self.push("note_off", i, j, 0, 0);
+                self.push("note_off", ch, j, 0, 0);
             }
         }
         // MIDIトラック終了
@@ -87,6 +87,10 @@ impl Midi {
         // 2^28-1
         let time = time.clamp(0, 268_435_455);
 
+        // channelは10番目のチャンネル回避で10番目以降が+1されているため
+        let i = if channel < 9 { channel } else { channel - 1 };
+        let i = i as usize;
+
         let event = match message {
             "note_on" => TrackEvent {
                 delta: u28::new(0),
@@ -113,14 +117,15 @@ impl Midi {
                 kind: TrackEventKind::Midi {
                     channel: u4::new(channel),
                     message: MidiMessage::PitchBend {
-                        bend: PitchBend::from_int(self.pitch_bend_values[channel as usize]),
+                        bend: PitchBend::from_int(self.pitch_bend_values[i]),
                     },
                 },
             },
             // messageがプログラム内部で固定のため
             _ => unreachable!(),
         };
-        self.tracks[channel as usize].push(event);
+
+        self.tracks[i].push(event);
     }
 
     fn manage_notes(
@@ -139,8 +144,9 @@ impl Midi {
         let end_note = track.end_note;
 
         for i in 0..self.number_of_tracks {
+            let ch: usize = if i < 9 { i } else { i + 1 };
             if append_pitch_bend && !disable_pitch_bend {
-                self.push("pitchwheel", i, 0, 0, 0);
+                self.push("pitchwheel", ch, 0, 0, 0);
             }
             for j in start_note..end_note {
                 let idx = i * (end_note - start_note) + j - start_note;
@@ -158,7 +164,7 @@ impl Midi {
                 if before_velocity == 0 {
                     // 今回は音があったとき
                     if min_velocity < current_velocity {
-                        self.push("note_on", i, j, current_velocity, 0);
+                        self.push("note_on", ch, j, current_velocity, 0);
                     } else {
                         track.temp_track[frame][idx] = 0.0;
                     }
@@ -169,9 +175,9 @@ impl Midi {
                     // 今回の音が前回よりも大きくなりすぎたとき
                     let is_biger = before_velocity + similar_velocity_threshold < current_velocity;
                     if is_smaller || is_biger || current_velocity <= min_velocity {
-                        self.push("note_off", i, j, 0, 0);
+                        self.push("note_off", ch, j, 0, 0);
                         if min_velocity < current_velocity {
-                            self.push("note_on", i, j, current_velocity, 0);
+                            self.push("note_on", ch, j, current_velocity, 0);
                         } else {
                             track.temp_track[frame][idx] = 0.0;
                         }
@@ -183,7 +189,7 @@ impl Midi {
             }
 
             if next_time {
-                self.push("note_off", i, 0, 0, self.time);
+                self.push("note_off", ch, 0, 0, self.time);
             }
         }
     }
@@ -227,8 +233,16 @@ fn get_max_velocity(track: &Track) -> f64 {
         .unwrap_or(1.0)
 }
 
-fn generate_bend_values(step: usize) -> Vec<i16> {
-    let positive_values = (0..2048).step_by(step).map(|x| x as i16);
-    let negative_values = (0..2048).step_by(step).map(|x| x as i16 - 2048);
+fn generate_bend_values(nums: usize) -> Vec<i16> {
+    assert!(nums > 0 && nums % 2 == 0);
+
+    let half = nums / 2;
+
+    let positive_values = (0..half)
+        .map(|i| (i as f64 * 2048.0 / half as f64).round() as i16);
+
+    let negative_values = (0..half)
+        .map(|i| (i as f64 * 2048.0 / half as f64).round() as i16 - 2048);
+
     positive_values.chain(negative_values).collect()
 }
