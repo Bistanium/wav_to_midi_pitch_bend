@@ -234,7 +234,7 @@ fn get_max_velocity(track: &Track) -> f64 {
 }
 
 fn generate_bend_values(nums: usize) -> Vec<i16> {
-    assert!(nums > 0 && nums % 2 == 0);
+    assert!(nums > 0);
 
     let half = nums / 2;
 
