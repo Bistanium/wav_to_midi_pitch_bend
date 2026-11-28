@@ -165,25 +165,18 @@ impl Midi {
                     // 今回は音があったとき
                     if min_velocity < current_velocity {
                         self.push("note_on", ch, j, current_velocity, 0);
-                    } else {
-                        track.temp_track[frame][idx] = 0.0;
                     }
                 } else {
-                    //　今回の音が前回よりも小さくなりすぎたとき
-                    let is_smaller =
-                        current_velocity + similar_velocity_threshold < before_velocity;
-                    // 今回の音が前回よりも大きくなりすぎたとき
-                    let is_biger = before_velocity + similar_velocity_threshold < current_velocity;
-                    if is_smaller || is_biger || current_velocity <= min_velocity {
+                    // 差の絶対値がしきい値以下
+                    let is_within_range =
+                        current_velocity.abs_diff(before_velocity) <= similar_velocity_threshold;
+                    if is_within_range && min_velocity < current_velocity {
+                        track.temp_track[frame][idx] = track.temp_track[frame - 1][idx];
+                    } else {
                         self.push("note_off", ch, j, 0, 0);
                         if min_velocity < current_velocity {
                             self.push("note_on", ch, j, current_velocity, 0);
-                        } else {
-                            track.temp_track[frame][idx] = 0.0;
                         }
-                    } else {
-                        let velocity = track.temp_track[frame - 1][idx];
-                        track.temp_track[frame][idx] = velocity;
                     }
                 }
             }
@@ -238,11 +231,10 @@ fn generate_bend_values(nums: usize) -> Vec<i16> {
 
     let half = nums / 2;
 
-    let positive_values = (0..half)
-        .map(|i| (i as f64 * 2048.0 / half as f64).round() as i16);
+    let positive_values = (0..half).map(|i| (i as f64 * 2048.0 / half as f64).round() as i16);
 
-    let negative_values = (0..half)
-        .map(|i| (i as f64 * 2048.0 / half as f64).round() as i16 - 2048);
+    let negative_values =
+        (0..half).map(|i| (i as f64 * 2048.0 / half as f64).round() as i16 - 2048);
 
     positive_values.chain(negative_values).collect()
 }
